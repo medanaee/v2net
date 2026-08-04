@@ -6,6 +6,8 @@ use tester::{cancel_testing, run_batch_test, TestTarget};
 use tauri::{AppHandle, Manager, WebviewWindow};
 #[cfg(target_os = "windows")]
 use window_vibrancy::{apply_acrylic, clear_blur};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 #[tauri::command]
 async fn start_batch_test(
@@ -83,6 +85,7 @@ pub fn kill_tracked_pids() {
             #[cfg(target_os = "windows")]
             let _ = std::process::Command::new("taskkill")
                 .args(["/F", "/PID", &pid.to_string(), "/T"])
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
                 .spawn();
         }
     }
