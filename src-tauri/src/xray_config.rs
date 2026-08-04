@@ -1,6 +1,5 @@
-
-use serde_json::{json, Value};
 use crate::tester::TestTarget;
+use serde_json::{json, Value};
 
 pub fn generate_xray_config(target: &TestTarget, local_port: u16) -> Value {
     let inbound = json!({
@@ -72,7 +71,7 @@ pub fn generate_xray_config(target: &TestTarget, local_port: u16) -> Value {
 
     // Stream settings
     let mut stream_settings = json!({});
-    
+
     // Network (tcp, ws, grpc, etc)
     let network = target.network.clone().unwrap_or_else(|| "tcp".to_string());
     stream_settings["network"] = json!(network);
@@ -476,7 +475,6 @@ pub fn generate_xray_config_batch(targets_with_ports: &[(TestTarget, u16)]) -> V
     })
 }
 
-
 pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port: u16) -> Value {
     let mut outbound = json!({
         "protocol": target.protocol,
@@ -711,4 +709,3 @@ pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port
         }
     })
 }
-

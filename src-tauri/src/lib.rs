@@ -1,13 +1,13 @@
+mod connection;
 mod tester;
 pub mod xray_config;
-mod connection;
 
-use tester::{cancel_testing, run_batch_test, TestTarget};
-use tauri::{AppHandle, Manager, WebviewWindow};
-#[cfg(target_os = "windows")]
-use window_vibrancy::{apply_acrylic, clear_blur};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use tauri::{AppHandle, Manager, WebviewWindow};
+use tester::{cancel_testing, run_batch_test, TestTarget};
+#[cfg(target_os = "windows")]
+use window_vibrancy::{apply_acrylic, clear_blur};
 
 #[tauri::command]
 async fn start_batch_test(
@@ -20,7 +20,16 @@ async fn start_batch_test(
     test_workers: usize,
 ) -> Result<(), String> {
     tokio::spawn(async move {
-        run_batch_test(app, targets, test_url, download_url, upload_url, test_mode, test_workers).await;
+        run_batch_test(
+            app,
+            targets,
+            test_url,
+            download_url,
+            upload_url,
+            test_mode,
+            test_workers,
+        )
+        .await;
     });
     Ok(())
 }
@@ -66,8 +75,8 @@ fn apply_window_vibrancy(window: WebviewWindow, enabled: bool) -> Result<(), Str
     Ok(())
 }
 
+use connection::{set_system_proxy_mode, start_proxy, stop_proxy};
 use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
-use connection::{start_proxy, stop_proxy, set_system_proxy_mode};
 
 use std::sync::Mutex;
 
@@ -94,6 +103,7 @@ pub fn kill_tracked_pids() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -120,18 +130,18 @@ pub fn run() {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
                         let _ = window_clone.hide();
-                        
+
                         let app_handle = app_handle.clone();
                         tauri::async_runtime::spawn(async move {
                             // Clear the proxy and stop the main connection
                             let _ = crate::connection::stop_proxy().await;
-                            
+
                             // Cancel testing
                             crate::tester::cancel_testing();
-                            
+
                             // Force kill ONLY the xray instances we spawned
                             crate::kill_tracked_pids();
-                            
+
                             app_handle.exit(0);
                         });
                     }

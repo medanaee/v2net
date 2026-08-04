@@ -1,13 +1,13 @@
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::Semaphore;
-use futures_util::StreamExt;
 use tauri_plugin_shell::ShellExt;
-use std::future::Future;
-use std::pin::Pin;
+use tokio::sync::Semaphore;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestTarget {
@@ -15,7 +15,7 @@ pub struct TestTarget {
     pub address: String,
     pub port: u16,
     pub test_url: String,
-    pub test_type: String, 
+    pub test_type: String,
     pub protocol: String,
     pub uuid: Option<String>,
     pub secret: Option<String>,
@@ -92,7 +92,7 @@ pub async fn run_batch_test(
     if xray_concurrency == 0 {
         xray_concurrency = 1;
     }
-    
+
     let semaphore = Arc::new(Semaphore::new(xray_concurrency));
     let tested_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let speed_sem = Arc::new(Semaphore::new(1));
@@ -130,7 +130,8 @@ pub async fn run_batch_test(
                 sem_clone,
                 speed_sem_clone,
                 temp_folder,
-            ).await;
+            )
+            .await;
         });
 
         handles.push(handle);
@@ -174,7 +175,13 @@ fn test_target_group<'a>(
         }
 
         let config_json = crate::xray_config::generate_xray_config_batch(&targets_with_ports);
-        let config_id = format!("batch_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let config_id = format!(
+            "batch_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
         let config_path = temp_folder.join(format!("{}.json", config_id));
         let _ = std::fs::write(&config_path, config_json.to_string());
 
@@ -209,14 +216,15 @@ fn test_target_group<'a>(
             tokio::time::sleep(std::time::Duration::from_millis(600)).await;
 
             let mut is_exited = false;
-            let check_exit = tokio::time::timeout(std::time::Duration::from_millis(10), &mut rx_handle).await;
+            let check_exit =
+                tokio::time::timeout(std::time::Duration::from_millis(10), &mut rx_handle).await;
             if let Ok(res) = check_exit {
                 is_exited = true;
                 if let Ok(out) = res {
                     crash_error = out;
                 }
             }
-            
+
             if is_exited {
                 crashed = true;
                 let _ = child.kill();
@@ -230,11 +238,11 @@ fn test_target_group<'a>(
         let _ = std::fs::remove_file(&config_path);
 
         if crashed {
-            drop(permit); 
+            drop(permit);
             if targets.len() > 1 {
                 let mid = targets.len() / 2;
                 let (left, right) = targets.split_at(mid);
-                
+
                 let h1 = tokio::spawn({
                     let app = app.clone();
                     let t_url = test_url.clone();
@@ -247,7 +255,10 @@ fn test_target_group<'a>(
                     let tmp = temp_folder.clone();
                     let left = left.to_vec();
                     async move {
-                        test_target_group(app, left, t_url, d_url, u_url, t_mode, tested, total, sem, speed, tmp).await;
+                        test_target_group(
+                            app, left, t_url, d_url, u_url, t_mode, tested, total, sem, speed, tmp,
+                        )
+                        .await;
                     }
                 });
 
@@ -263,19 +274,25 @@ fn test_target_group<'a>(
                     let tmp = temp_folder.clone();
                     let right = right.to_vec();
                     async move {
-                        test_target_group(app, right, t_url, d_url, u_url, t_mode, tested, total, sem, speed, tmp).await;
+                        test_target_group(
+                            app, right, t_url, d_url, u_url, t_mode, tested, total, sem, speed, tmp,
+                        )
+                        .await;
                     }
                 });
-                
+
                 let _ = h1.await;
                 let _ = h2.await;
             } else {
                 let target = &targets[0];
                 println!("[Xray Error for {}]: {}", target.id, crash_error);
-                let _ = app.emit("xray-error", serde_json::json!({
-                    "id": target.id,
-                    "error": crash_error
-                }));
+                let _ = app.emit(
+                    "xray-error",
+                    serde_json::json!({
+                        "id": target.id,
+                        "error": crash_error
+                    }),
+                );
 
                 let result = TestResultPayload {
                     id: target.id.clone(),
@@ -289,7 +306,14 @@ fn test_target_group<'a>(
 
                 let current_tested = tested_cnt.fetch_add(1, Ordering::Relaxed) + 1;
                 let remaining = total.saturating_sub(current_tested);
-                let _ = app.emit("test-progress", ProgressPayload { tested: current_tested, total, remaining });
+                let _ = app.emit(
+                    "test-progress",
+                    ProgressPayload {
+                        tested: current_tested,
+                        total,
+                        remaining,
+                    },
+                );
             }
             return;
         }
@@ -305,7 +329,7 @@ fn test_target_group<'a>(
             let mode_c = test_mode.clone();
             let speed_sem_c = speed_sem.clone();
             let t_cnt = tested_cnt.clone();
-            
+
             let handle = tokio::spawn(async move {
                 let mut result = TestResultPayload {
                     id: t.id.clone(),
@@ -322,12 +346,30 @@ fn test_target_group<'a>(
                         .proxy(proxy)
                         .timeout(std::time::Duration::from_millis(5000))
                         .danger_accept_invalid_certs(true)
-                        .build() {
-                        
+                        .build()
+                    {
                         if mode_c == "speed" {
-                            result = perform_speed_test(&t, &client, &t_url, &d_url, &u_url, app_c.clone(), speed_sem_c.clone()).await;
+                            result = perform_speed_test(
+                                &t,
+                                &client,
+                                &t_url,
+                                &d_url,
+                                &u_url,
+                                app_c.clone(),
+                                speed_sem_c.clone(),
+                            )
+                            .await;
                         } else if mode_c == "hybrid" {
-                            result = perform_hybrid_test(&t, &client, &t_url, &d_url, &u_url, app_c.clone(), speed_sem_c.clone()).await;
+                            result = perform_hybrid_test(
+                                &t,
+                                &client,
+                                &t_url,
+                                &d_url,
+                                &u_url,
+                                app_c.clone(),
+                                speed_sem_c.clone(),
+                            )
+                            .await;
                         } else {
                             result = perform_latency_test(&t, &client, &t_url).await;
                         }
@@ -338,7 +380,14 @@ fn test_target_group<'a>(
                 let remaining = total.saturating_sub(current_tested);
 
                 let _ = app_c.emit("test-result", &result);
-                let _ = app_c.emit("test-progress", ProgressPayload { tested: current_tested, total, remaining });
+                let _ = app_c.emit(
+                    "test-progress",
+                    ProgressPayload {
+                        tested: current_tested,
+                        total,
+                        remaining,
+                    },
+                );
             });
             test_handles.push(handle);
         }
@@ -393,30 +442,32 @@ async fn perform_speed_test(
     speed_sem: Arc<Semaphore>,
 ) -> TestResultPayload {
     let _permit = speed_sem.acquire().await.ok();
-    
+
     let start = Instant::now();
     let mut downloaded_bytes = 0f64;
     let test_duration = std::time::Duration::from_secs(5);
-    
+
     let mut final_dl = 0.0;
-    
+
     if let Ok(resp) = client.get(dl_url).send().await {
         let mut stream = resp.bytes_stream();
         let mut last_emit = Instant::now();
-        
-        while let Ok(Some(chunk_result)) = tokio::time::timeout(std::time::Duration::from_secs(2), stream.next()).await {
+
+        while let Ok(Some(chunk_result)) =
+            tokio::time::timeout(std::time::Duration::from_secs(2), stream.next()).await
+        {
             if IS_TESTING_CANCELLED.load(Ordering::Relaxed) {
                 break;
             }
             if let Ok(chunk) = chunk_result {
                 downloaded_bytes += chunk.len() as f64;
                 let elapsed = start.elapsed().as_secs_f64();
-                
+
                 if elapsed > 0.0 {
                     let bytes_per_sec = downloaded_bytes / elapsed;
                     final_dl = bytes_per_sec / (1024.0 * 1024.0);
                 }
-                
+
                 if last_emit.elapsed().as_millis() > 500 {
                     let partial = TestResultPayload {
                         id: target.id.clone(),
@@ -429,7 +480,7 @@ async fn perform_speed_test(
                     let _ = app_handle.emit("test-result", &partial);
                     last_emit = Instant::now();
                 }
-                
+
                 if start.elapsed() >= test_duration {
                     break;
                 }
@@ -438,7 +489,7 @@ async fn perform_speed_test(
             }
         }
     }
-    
+
     let elapsed = start.elapsed().as_secs_f64();
     if elapsed > 0.0 && downloaded_bytes > 0.0 {
         final_dl = (downloaded_bytes / elapsed) / (1024.0 * 1024.0);
@@ -467,7 +518,7 @@ async fn perform_hybrid_test(
     if latency_res.status == Some("disconnected".to_string()) {
         return latency_res;
     }
-    
+
     let mut current_res = TestResultPayload {
         id: target.id.clone(),
         test_type: "hybrid".to_string(),
@@ -488,27 +539,29 @@ async fn perform_hybrid_test(
     if let Ok(resp) = client.get(dl_url).send().await {
         let mut stream = resp.bytes_stream();
         let mut last_emit = Instant::now();
-        
-        while let Ok(Some(chunk_result)) = tokio::time::timeout(std::time::Duration::from_secs(2), stream.next()).await {
+
+        while let Ok(Some(chunk_result)) =
+            tokio::time::timeout(std::time::Duration::from_secs(2), stream.next()).await
+        {
             if IS_TESTING_CANCELLED.load(Ordering::Relaxed) {
                 break;
             }
             if let Ok(chunk) = chunk_result {
                 downloaded_bytes += chunk.len() as f64;
                 let elapsed = start.elapsed().as_secs_f64();
-                
+
                 if elapsed > 0.0 {
                     let bytes_per_sec = downloaded_bytes / elapsed;
                     final_dl = bytes_per_sec / (1024.0 * 1024.0);
                 }
-                
+
                 if last_emit.elapsed().as_millis() > 500 {
                     current_res.download_speed = Some(final_dl);
                     current_res.upload_speed = Some(final_dl * 0.4);
                     let _ = app_handle.emit("test-result", &current_res);
                     last_emit = Instant::now();
                 }
-                
+
                 if start.elapsed() >= test_duration {
                     break;
                 }
@@ -517,12 +570,12 @@ async fn perform_hybrid_test(
             }
         }
     }
-    
+
     let elapsed = start.elapsed().as_secs_f64();
     if elapsed > 0.0 && downloaded_bytes > 0.0 {
         final_dl = (downloaded_bytes / elapsed) / (1024.0 * 1024.0);
     }
-    
+
     current_res.download_speed = Some(final_dl);
     current_res.upload_speed = Some(final_dl * 0.4);
     current_res

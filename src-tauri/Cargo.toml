@@ -28,4 +28,5 @@ window-vibrancy = "0.5"
 tauri-plugin-shell = "2.3.5"
 futures-util = "0.3.33"
 sysproxy = "0.3.0"
+tauri-plugin-clipboard-manager = "2"
 

@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useConfigStore } from '../store/useConfigStore';
 import { ConfigItem } from '../types/config';
 import { Checkbox } from './ui/checkbox';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 interface ConfigTableProps {
   searchQuery: string;
@@ -152,14 +153,14 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
         return;
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyC') {
         const selectedItems = visibleItems.filter((item) => selectedSet.has(item.id));
         if (selectedItems.length > 0) {
           e.preventDefault();
           const rawText = selectedItems.map((item) => item.raw).join('\n');
-          await navigator.clipboard.writeText(rawText);
+          await writeText(rawText);
         }
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+      } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA') {
         e.preventDefault();
         selectAllVisible(visibleItems);
       }

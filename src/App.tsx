@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { TitleBar } from './components/TitleBar';
 import { GroupTabs } from './components/GroupTabs';
 import { ConfigTable } from './components/ConfigTable';
@@ -34,7 +35,7 @@ export const App: React.FC = () => {
         const target = e.target as HTMLElement;
         const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
 
-        if (e.key.toLowerCase() === 'c') {
+        if (e.code === 'KeyC') {
           // Allow default for Ctrl+C, but if it fails in WebView2, polyfill it
           if (isInput) {
             const inputTarget = target as HTMLInputElement;
@@ -42,21 +43,21 @@ export const App: React.FC = () => {
             const end = inputTarget.selectionEnd || 0;
             if (start !== end) {
               e.preventDefault();
-              navigator.clipboard.writeText(inputTarget.value.substring(start, end)).catch(console.error);
+              writeText(inputTarget.value.substring(start, end)).catch(console.error);
             }
           } else {
             const selectedText = window.getSelection()?.toString();
             if (selectedText) {
               e.preventDefault();
-              navigator.clipboard.writeText(selectedText).catch(console.error);
+              writeText(selectedText).catch(console.error);
             }
           }
           return;
         }
 
-        if (e.key.toLowerCase() === 'v') {
+        if (e.code === 'KeyV') {
           try {
-            const text = await navigator.clipboard.readText();
+            const text = await readText();
             if (!text) return;
 
             if (isInput) {

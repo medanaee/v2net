@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useTranslation } from 'react-i18next';
 import {
   HelpCircle,
@@ -46,7 +47,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
 
   const handlePaste = async () => {
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await readText();
       if (text) {
         const added = addConfigsFromText(text);
         showToast(`${added} ${t('configsPastedSuccess')}`);
@@ -65,7 +66,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
     }
 
     const rawText = selectedItems.map((c) => c.raw).join('\n');
-    await navigator.clipboard.writeText(rawText);
+    await writeText(rawText);
     showToast(`${selectedItems.length} ${t('configsCopiedSuccess')}`);
   };
 
