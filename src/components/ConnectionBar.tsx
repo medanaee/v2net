@@ -46,15 +46,16 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
       if (osType === 'windows') {
         const isAdmin: boolean = await invoke('check_elevation');
         if (!isAdmin) {
-          // not admin, restart app requesting admin
+          // Persist TUN intent before elevation restart so auto-reconnect enables it
+          setTunMode(true);
           try {
             await invoke('restart_as_admin');
           } catch (e) {
             console.error(e);
+            setTunMode(false);
           }
           return;
         }
-        // if admin, just enable tun
         setTunMode(true);
       } else if (osType === 'linux') {
         const isRoot: boolean = await invoke('check_elevation');
