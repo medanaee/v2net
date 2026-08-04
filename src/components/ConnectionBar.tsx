@@ -21,23 +21,24 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
   const hasStarted = React.useRef(false);
 
   React.useEffect(() => {
-    // Reconnect on startup if config was active
-    if (settings.activeConfigId && configs.length > 0 && !hasStarted.current) {
-      hasStarted.current = true;
-      const activeConfig = configs.find(c => c.id === settings.activeConfigId);
-      if (activeConfig) {
-        // Add a small delay to let backend initialize
-        setTimeout(() => {
-          startProxyWithConfig(
-            activeConfig,
-            settings.localPort || 10900,
-            settings.systemProxyMode || 'dont_change',
-            false // TUN always starts off after launch
-          ).catch(console.error);
-        }, 500);
-      }
-    }
-  }, [settings.activeConfigId, configs, settings.localPort, settings.systemProxyMode]);
+    // One-shot auto-connect on mount only — do NOT re-run when activeConfigId changes
+    // (right-click switch must not fight a second start_proxy with tunMode=false).
+    if (hasStarted.current) return;
+    hasStarted.current = true;
+    const state = useConfigStore.getState();
+    const activeConfig = state.configs.find((c) => c.id === state.settings.activeConfigId);
+    if (!activeConfig) return;
+    const t = window.setTimeout(() => {
+      startProxyWithConfig(
+        activeConfig,
+        state.settings.localPort || 10900,
+        state.settings.systemProxyMode || 'dont_change',
+        false // TUN always starts off after launch
+      ).catch(console.error);
+    }, 500);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleTunChange = async (checked: boolean) => {
     if (checked) {

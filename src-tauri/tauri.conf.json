@@ -36,10 +36,12 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "bin/xray"
+      "bin/xray",
+      "bin/sing-box"
     ],
     "resources": [
-      "bin/wintun.dll"
+      "bin/wintun.dll",
+      "bin/libcronet.dll"
     ]
   }
 }

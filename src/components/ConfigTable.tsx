@@ -107,7 +107,12 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     }
   };
 
+  const connectingRef = React.useRef(false);
+
   const handleConnect = async (item: ConfigItem) => {
+    if (connectingRef.current) return;
+    connectingRef.current = true;
+    updateSettings({ activeConfigId: item.id });
     try {
       await startProxyWithConfig(
         item,
@@ -115,10 +120,11 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
         settings.systemProxyMode || 'dont_change',
         useConfigStore.getState().tunMode
       );
-      updateSettings({ activeConfigId: item.id });
     } catch (e) {
       console.error('Failed to connect:', e);
       alert('خطا در اتصال: ' + e);
+    } finally {
+      connectingRef.current = false;
     }
   };
 

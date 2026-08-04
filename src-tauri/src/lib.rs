@@ -1,4 +1,5 @@
 mod connection;
+mod singbox_config;
 mod tester;
 pub mod xray_config;
 

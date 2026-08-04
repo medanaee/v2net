@@ -11,9 +11,12 @@ use tauri_plugin_shell::ShellExt;
 use crate::tester::TestTarget;
 
 static ACTIVE_XRAY: Mutex<Option<tauri_plugin_shell::process::CommandChild>> = Mutex::new(None);
+static ACTIVE_SINGBOX: Mutex<Option<tauri_plugin_shell::process::CommandChild>> = Mutex::new(None);
 static TUN_ACTIVE: Mutex<bool> = Mutex::new(false);
-static TUN_SERVER_IP: Mutex<Option<String>> = Mutex::new(None);
-/// v2rayN CoreAdminManager: track sudo-launched core PID + password for kill_as_sudo.
+/// Serialize start/stop so right-click reconnect cannot race (port-in-use / app flap).
+static PROXY_OP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// v2rayN CoreAdminManager: track sudo-launched sing-box PID + password for kill_as_sudo.
 #[cfg(target_os = "linux")]
 static LINUX_SUDO_PWD: Mutex<Option<String>> = Mutex::new(None);
 #[cfg(target_os = "linux")]
@@ -22,12 +25,12 @@ static LINUX_SUDO_PID: Mutex<Option<u32>> = Mutex::new(None);
 static LINUX_SUDO_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
 
 /// Same approach as v2rayN WindowsUtils.RemoveTunDevice.
-/// Stale Wintun adapters stay up without routes and break the next TUN start.
+/// Do NOT Disable-NetAdapter here — that flaps the whole network and feels like an app reset.
 #[cfg(target_os = "windows")]
 fn remove_tun_device() {
     use std::os::windows::process::CommandExt;
     let script = r#"
-$names = @('xray_tun','wintunsingbox_tun')
+$names = @('wintunsingbox_tun','singbox_tun','xray_tun')
 foreach ($n in $names) {
   try {
     $md5 = [System.Security.Cryptography.MD5]::Create()
@@ -41,100 +44,108 @@ foreach ($n in $names) {
     let _ = std::process::Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status();
 }
 
 #[cfg(not(target_os = "windows"))]
 fn remove_tun_device() {}
 
-/// Detect the physical default-route NIC (skip WSL/Hyper-V/Wintun/loopback).
 #[cfg(target_os = "windows")]
-fn detect_physical_bind() -> Option<crate::xray_config::TunBindInfo> {
+fn force_kill_pid(pid: u32) {
     use std::os::windows::process::CommandExt;
-    let script = r#"
-$r = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
-  Where-Object { $_.InterfaceAlias -notmatch 'xray|Wintun|Loopback|WSL|vEthernet|Hyper-V|Virtual|Docker|Npc' } |
-  Sort-Object RouteMetric, InterfaceMetric |
-  Select-Object -First 1
-if (-not $r) { exit 0 }
-$ip = Get-NetIPAddress -InterfaceIndex $r.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-  Where-Object { $_.IPAddress -notlike '169.254*' } |
-  Select-Object -First 1 -ExpandProperty IPAddress
-if (-not $ip) { exit 0 }
-Write-Output ($r.InterfaceAlias + '|' + $ip + '|' + $r.NextHop)
-"#;
-    let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+    let _ = std::process::Command::new("taskkill")
+        .args(["/F", "/PID", &pid.to_string(), "/T"])
         .creation_flags(0x08000000)
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if text.is_empty() {
-        return None;
-    }
-    let mut parts = text.split('|');
-    let iface = parts.next()?.trim().to_string();
-    let ip = parts.next()?.trim().to_string();
-    let gateway = parts.next().unwrap_or("").trim().to_string();
-    if iface.is_empty() || ip.is_empty() {
-        return None;
-    }
-    println!(
-        "[tun] physical bind: iface={}, ip={}, gateway={}",
-        iface, ip, gateway
-    );
-    Some(crate::xray_config::TunBindInfo {
-        interface_name: iface,
-        local_ip: ip,
-    })
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 }
 
-/// Linux: parse `ip route get` like v2rayN physical egress selection.
-#[cfg(target_os = "linux")]
-fn detect_physical_bind() -> Option<crate::xray_config::TunBindInfo> {
-    let output = std::process::Command::new("ip")
-        .args(["-4", "route", "get", "1.1.1.1"])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    // e.g. "1.1.1.1 via 192.168.1.1 dev eth0 src 192.168.1.10 uid 1000"
-    let mut iface = None;
-    let mut ip = None;
-    let mut gateway = None;
-    let mut words = text.split_whitespace().peekable();
-    while let Some(w) = words.next() {
-        match w {
-            "dev" => iface = words.next().map(|s| s.to_string()),
-            "src" => ip = words.next().map(|s| s.to_string()),
-            "via" => gateway = words.next().map(|s| s.to_string()),
-            _ => {}
+#[cfg(target_os = "windows")]
+fn force_kill_image(image: &str) {
+    use std::os::windows::process::CommandExt;
+    let _ = std::process::Command::new("taskkill")
+        .args(["/F", "/IM", image, "/T"])
+        .creation_flags(0x08000000)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+#[cfg(target_os = "windows")]
+fn process_image_running(image: &str) -> bool {
+    use std::os::windows::process::CommandExt;
+    let output = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("IMAGENAME eq {}", image), "/NH"])
+        .creation_flags(0x08000000)
+        .output();
+    match output {
+        Ok(out) => {
+            let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            text.contains(&image.to_lowercase())
+        }
+        Err(_) => false,
+    }
+}
+
+fn tun_front_running() -> bool {
+    let flagged = TUN_ACTIVE.lock().map(|g| *g).unwrap_or(false);
+    if !flagged {
+        return false;
+    }
+    let has_child = ACTIVE_SINGBOX.lock().map(|g| g.is_some()).unwrap_or(false);
+    #[cfg(target_os = "windows")]
+    {
+        has_child
+            || process_image_running("sing-box.exe")
+            || process_image_running("sing-box-x86_64-pc-windows-msvc.exe")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        has_child
+    }
+}
+
+async fn wait_port_free(port: u16, timeout_ms: u64) -> Result<(), String> {
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    loop {
+        match std::net::TcpListener::bind(addr) {
+            Ok(listener) => {
+                drop(listener);
+                return Ok(());
+            }
+            Err(_) => {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(format!("Port {} still in use after stop", port));
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
         }
     }
-    let iface = iface.filter(|s| {
-        let lower = s.to_lowercase();
-        !lower.starts_with("xray")
-            && !lower.starts_with("tun")
-            && !lower.starts_with("docker")
-            && !lower.starts_with("veth")
-            && !lower.starts_with("br-")
-            && lower != "lo"
-    })?;
-    let ip = ip?;
-    println!(
-        "[tun] physical bind: iface={}, ip={}, gateway={}",
-        iface,
-        ip,
-        gateway.as_deref().unwrap_or("")
-    );
-    Some(crate::xray_config::TunBindInfo {
-        interface_name: iface,
-        local_ip: ip,
-    })
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
-fn detect_physical_bind() -> Option<crate::xray_config::TunBindInfo> {
-    None
+async fn stop_xray_only() {
+    let xray_pid = {
+        let mut guard = ACTIVE_XRAY.lock().unwrap();
+        guard.take().map(|child| {
+            let pid = child.pid();
+            let _ = child.kill();
+            pid
+        })
+    };
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(pid) = xray_pid {
+            force_kill_pid(pid);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = xray_pid;
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -169,202 +180,11 @@ fn run_as_root_shell(script: &str) {
         }
         let _ = child.wait();
     } else {
-        // Best-effort without password (NOPASSWD sudo)
         let _ = std::process::Command::new("sudo")
             .args(["-n", "bash", "-c", script])
             .status();
     }
 }
-
-/// Force proxy-server /32 out the physical gateway so TUN cannot black-hole the uplink.
-#[cfg(target_os = "windows")]
-fn ensure_proxy_host_route(server_ip: &str) {
-    use std::os::windows::process::CommandExt;
-    if server_ip.parse::<std::net::Ipv4Addr>().is_err() {
-        return;
-    }
-    let script = format!(
-        r#"
-$server = '{server}'
-$r = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
-  Where-Object {{ $_.InterfaceAlias -notmatch 'xray|Wintun|Loopback|WSL|vEthernet|Hyper-V|Virtual|Docker|vbox' }} |
-  Sort-Object RouteMetric, InterfaceMetric |
-  Select-Object -First 1
-if (-not $r) {{ exit 0 }}
-try {{
-  Remove-NetRoute -DestinationPrefix ($server + '/32') -Confirm:$false -ErrorAction SilentlyContinue
-}} catch {{}}
-New-NetRoute -DestinationPrefix ($server + '/32') -InterfaceIndex $r.InterfaceIndex -NextHop $r.NextHop -RouteMetric 1 -ErrorAction SilentlyContinue | Out-Null
-"#,
-        server = server_ip
-    );
-    let _ = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .creation_flags(0x08000000)
-        .status();
-}
-
-#[cfg(target_os = "linux")]
-fn ensure_proxy_host_route(server_ip: &str) {
-    if server_ip.parse::<std::net::Ipv4Addr>().is_err() {
-        return;
-    }
-    // Keep uplink to proxy server on the physical default route.
-    let script = format!(
-        r#"
-set -e
-GW=$(ip -4 route show default | awk '/default/ {{print $3; exit}}')
-DEV=$(ip -4 route show default | awk '/default/ {{print $5; exit}}')
-if [ -z "$GW" ] || [ -z "$DEV" ]; then exit 0; fi
-ip -4 route replace {server}/32 via "$GW" dev "$DEV"
-"#,
-        server = server_ip
-    );
-    run_as_root_shell(&script);
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
-fn ensure_proxy_host_route(_server_ip: &str) {}
-
-#[cfg(target_os = "windows")]
-fn clear_proxy_host_route(server_ip: &str) {
-    use std::os::windows::process::CommandExt;
-    if server_ip.parse::<std::net::Ipv4Addr>().is_err() {
-        return;
-    }
-    let script = format!(
-        "Remove-NetRoute -DestinationPrefix '{}/32' -Confirm:$false -ErrorAction SilentlyContinue",
-        server_ip
-    );
-    let _ = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .creation_flags(0x08000000)
-        .status();
-}
-
-#[cfg(target_os = "linux")]
-fn clear_proxy_host_route(server_ip: &str) {
-    if server_ip.parse::<std::net::Ipv4Addr>().is_err() {
-        return;
-    }
-    let script = format!("ip -4 route del {}/32 2>/dev/null || true", server_ip);
-    run_as_root_shell(&script);
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
-fn clear_proxy_host_route(_server_ip: &str) {}
-
-/// Force Windows to prefer xray_tun for internet traffic after the adapter is up.
-/// Xray's autoSystemRoutingTable alone can lose to Wi-Fi interface metric.
-#[cfg(target_os = "windows")]
-fn ensure_tun_routes() {
-    use std::os::windows::process::CommandExt;
-    let script = r#"
-$alias = 'xray_tun'
-$deadline = (Get-Date).AddSeconds(5)
-while ((Get-Date) -lt $deadline) {
-  $if = Get-NetIPInterface -InterfaceAlias $alias -AddressFamily IPv4 -ErrorAction SilentlyContinue
-  if ($if) { break }
-  Start-Sleep -Milliseconds 200
-}
-if (-not (Get-NetAdapter -Name $alias -ErrorAction SilentlyContinue)) {
-  Write-Output 'tun_missing'
-  exit 0
-}
-try {
-  Set-NetIPInterface -InterfaceAlias $alias -AddressFamily IPv4 -InterfaceMetric 1 -ErrorAction SilentlyContinue
-} catch {}
-$idx = (Get-NetIPInterface -InterfaceAlias $alias -AddressFamily IPv4 -ErrorAction SilentlyContinue).InterfaceIndex
-if (-not $idx) { exit 0 }
-foreach ($prefix in @('0.0.0.0/1','128.0.0.0/1')) {
-  try {
-    Remove-NetRoute -DestinationPrefix $prefix -InterfaceIndex $idx -Confirm:$false -ErrorAction SilentlyContinue
-  } catch {}
-  try {
-    New-NetRoute -DestinationPrefix $prefix -InterfaceIndex $idx -NextHop '0.0.0.0' -RouteMetric 1 -ErrorAction SilentlyContinue | Out-Null
-  } catch {
-    # Fallback: route.exe on-link style
-    $ifNum = $idx
-    if ($prefix -eq '0.0.0.0/1') {
-      & route.exe add 0.0.0.0 mask 128.0.0.0 0.0.0.0 metric 1 if $ifNum | Out-Null
-    } else {
-      & route.exe add 128.0.0.0 mask 128.0.0.0 0.0.0.0 metric 1 if $ifNum | Out-Null
-    }
-  }
-}
-Write-Output ("tun_routes_ok if=" + $idx)
-"#;
-    match std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .creation_flags(0x08000000)
-        .output()
-    {
-        Ok(out) => {
-            let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !text.is_empty() {
-                println!("[tun] {}", text);
-            }
-            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            if !err.is_empty() {
-                eprintln!("[tun] route stderr: {}", err);
-            }
-        }
-        Err(e) => eprintln!("[tun] ensure_tun_routes failed: {}", e),
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn ensure_tun_routes() {
-    let script = r#"
-for i in $(seq 1 25); do
-  ip link show xray_tun >/dev/null 2>&1 && break
-  sleep 0.2
-done
-if ! ip link show xray_tun >/dev/null 2>&1; then
-  echo tun_missing
-  exit 0
-fi
-ip -4 route replace 0.0.0.0/1 dev xray_tun
-ip -4 route replace 128.0.0.0/1 dev xray_tun
-echo tun_routes_ok
-"#;
-    run_as_root_shell(script);
-    println!("[tun] linux ensure_tun_routes done");
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
-fn ensure_tun_routes() {}
-
-#[cfg(target_os = "windows")]
-fn clear_tun_split_routes() {
-    use std::os::windows::process::CommandExt;
-    let script = r#"
-foreach ($prefix in @('0.0.0.0/1','128.0.0.0/1')) {
-  Get-NetRoute -DestinationPrefix $prefix -ErrorAction SilentlyContinue |
-    Where-Object { $_.InterfaceAlias -eq 'xray_tun' } |
-    ForEach-Object {
-      Remove-NetRoute -DestinationPrefix $_.DestinationPrefix -InterfaceIndex $_.InterfaceIndex -Confirm:$false -ErrorAction SilentlyContinue
-    }
-}
-"#;
-    let _ = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .creation_flags(0x08000000)
-        .status();
-}
-
-#[cfg(target_os = "linux")]
-fn clear_tun_split_routes() {
-    run_as_root_shell(
-        r#"
-ip -4 route del 0.0.0.0/1 dev xray_tun 2>/dev/null || true
-ip -4 route del 128.0.0.0/1 dev xray_tun 2>/dev/null || true
-"#,
-    );
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
-fn clear_tun_split_routes() {}
 
 /// Same idea as v2rayN Sample/kill_as_sudo_linux_sh — kill sudo tree by PID.
 #[cfg(target_os = "linux")]
@@ -395,7 +215,7 @@ fi
 }
 
 #[cfg(target_os = "linux")]
-fn stop_linux_sudo_xray() {
+fn stop_linux_sudo_singbox() {
     if let Ok(mut child_guard) = LINUX_SUDO_CHILD.lock() {
         if let Some(mut child) = child_guard.take() {
             let pid = child.id();
@@ -409,11 +229,376 @@ fn stop_linux_sudo_xray() {
             kill_linux_sudo_process_tree(pid);
         }
     }
-    // Fallback: kill leftover xray cores started via sudo
-    run_as_root_shell("pkill -9 -x xray 2>/dev/null || true; pkill -9 -f 'xray.*run -config' 2>/dev/null || true");
+    run_as_root_shell(
+        "pkill -9 -x sing-box 2>/dev/null || true; pkill -9 -f 'sing-box.*run -c' 2>/dev/null || true",
+    );
     if let Ok(mut pwd) = LINUX_SUDO_PWD.lock() {
         *pwd = None;
     }
+}
+
+fn ensure_wintun_dll(app: &AppHandle) {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap());
+        let bin_dir = resource_dir.join("bin");
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+
+        let target_dll = exe_dir.join("wintun.dll");
+        let candidates = [
+            bin_dir.join("wintun.dll"),
+            resource_dir.join("wintun.dll"),
+            resource_dir.join("bin").join("wintun.dll"),
+        ];
+        for source_dll in candidates {
+            if source_dll.exists() {
+                let _ = std::fs::copy(&source_dll, &target_dll);
+                break;
+            }
+        }
+    }
+    let _ = app;
+}
+
+fn sidecar_workdir(app: &AppHandle) -> std::path::PathBuf {
+    use tauri::Manager;
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .unwrap_or_else(|_| std::env::current_dir().unwrap());
+    let bin_dir = resource_dir.join("bin");
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
+    let _ = bin_dir;
+    exe_dir
+}
+
+async fn spawn_sidecar(
+    app: &AppHandle,
+    name: &str,
+    args: &[&str],
+    log_prefix: &'static str,
+) -> Result<tauri_plugin_shell::process::CommandChild, String> {
+    let exe_dir = sidecar_workdir(app);
+    let bin_dir = {
+        use tauri::Manager;
+        app.path()
+            .resource_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap())
+            .join("bin")
+    };
+
+    let mut cmd = app.shell().sidecar(name).map_err(|e| e.to_string())?;
+    cmd = cmd.current_dir(&exe_dir);
+    for a in args {
+        cmd = cmd.arg(*a);
+    }
+
+    let path_env = std::env::var("PATH").unwrap_or_default();
+    #[cfg(target_os = "windows")]
+    {
+        cmd = cmd.env(
+            "PATH",
+            format!("{};{};{}", exe_dir.display(), bin_dir.display(), path_env),
+        );
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        cmd = cmd.env(
+            "PATH",
+            format!("{}:{}:{}", exe_dir.display(), bin_dir.display(), path_env),
+        );
+    }
+
+    let (mut rx, child) = cmd.spawn().map_err(|e| e.to_string())?;
+    crate::track_pid(child.pid());
+
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            match event {
+                tauri_plugin_shell::process::CommandEvent::Stdout(line) => {
+                    println!("[{} STDOUT] {}", log_prefix, String::from_utf8_lossy(&line));
+                }
+                tauri_plugin_shell::process::CommandEvent::Stderr(line) => {
+                    eprintln!("[{} STDERR] {}", log_prefix, String::from_utf8_lossy(&line));
+                }
+                tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
+                    println!("[{} EXITED] code: {:?}", log_prefix, payload.code);
+                }
+                _ => {}
+            }
+        }
+    });
+
+    Ok(child)
+}
+
+/// v2rayN CoreManager.WaitForProxyPort — SOCKS5 greeting until local port accepts.
+async fn wait_for_socks_port(port: u16, timeout_ms: u64) -> Result<(), String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    let addr = format!("127.0.0.1:{}", port);
+    let greeting = [0x05u8, 0x01, 0x00];
+
+    loop {
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!("Timed out waiting for SOCKS port {}", port));
+        }
+        match TcpStream::connect(&addr).await {
+            Ok(mut stream) => {
+                if stream.write_all(&greeting).await.is_ok() {
+                    let mut buf = [0u8; 2];
+                    if stream.read_exact(&mut buf).await.is_ok() && buf[0] == 0x05 {
+                        println!("[start_proxy] socks ready on {}", port);
+                        return Ok(());
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn find_sidecar_binary(name_prefix: &str) -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let sidecar_dir = exe.parent()?;
+    if let Ok(entries) = std::fs::read_dir(sidecar_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if (name == name_prefix || name.starts_with(&format!("{}-", name_prefix)))
+                && !name.ends_with(".json")
+            {
+                return Some(entry.path());
+            }
+        }
+    }
+    None
+}
+
+/// Start sing-box TUN with sudo on Linux (needs CAP_NET_ADMIN).
+#[cfg(target_os = "linux")]
+async fn start_singbox_linux_sudo(
+    config_path: &std::path::Path,
+    sudo_password: Option<String>,
+) -> Result<(), String> {
+    let password = sudo_password.unwrap_or_default();
+    if !password.is_empty() {
+        if let Ok(mut pwd) = LINUX_SUDO_PWD.lock() {
+            *pwd = Some(password.clone());
+        }
+    }
+
+    let path_to_run = find_sidecar_binary("sing-box")
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "sing-box".to_string());
+
+    let already_root = is_elevated::is_elevated();
+    let mut child = if already_root {
+        std::process::Command::new(&path_to_run)
+            .arg("run")
+            .arg("-c")
+            .arg(config_path.to_string_lossy().to_string())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to run sing-box: {}", e))?
+    } else {
+        let mut child = std::process::Command::new("sudo")
+            .arg("-S")
+            .arg("--")
+            .arg(&path_to_run)
+            .arg("run")
+            .arg("-c")
+            .arg(config_path.to_string_lossy().to_string())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to run sudo: {}", e))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(format!("{}\n", password).as_bytes());
+        }
+        child
+    };
+
+    let pid = child.id();
+    crate::track_pid(pid);
+    if let Ok(mut guard) = LINUX_SUDO_PID.lock() {
+        *guard = Some(pid);
+    }
+
+    if let Some(stdout) = child.stdout.take() {
+        std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader};
+            let reader = BufReader::new(stdout);
+            for line in reader.lines().flatten() {
+                println!("[SINGBOX SUDO STDOUT] {}", line);
+            }
+        });
+    }
+    if let Some(stderr) = child.stderr.take() {
+        std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader};
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().flatten() {
+                eprintln!("[SINGBOX SUDO STDERR] {}", line);
+            }
+        });
+    }
+
+    if let Ok(mut guard) = LINUX_SUDO_CHILD.lock() {
+        *guard = Some(child);
+    }
+    Ok(())
+}
+
+async fn write_and_start_xray(
+    app: &AppHandle,
+    target: &TestTarget,
+    local_port: u16,
+) -> Result<(), String> {
+    let temp_dir = std::env::temp_dir().join("v2ray_test_configs");
+    let _ = fs::create_dir_all(&temp_dir);
+
+    let xray_config =
+        crate::xray_config::generate_xray_config_mixed_with_bind(target, local_port, false, None);
+    let xray_config_path = temp_dir.join("active_proxy.json");
+    fs::write(
+        &xray_config_path,
+        serde_json::to_string_pretty(&xray_config).unwrap_or_else(|_| xray_config.to_string()),
+    )
+    .map_err(|e| e.to_string())?;
+    println!(
+        "[start_proxy] xray config written to {}",
+        xray_config_path.display()
+    );
+
+    ensure_wintun_dll(app);
+
+    let xray_cfg = xray_config_path.to_string_lossy().to_string();
+    let xray_child = spawn_sidecar(app, "xray", &["run", "-config", &xray_cfg], "XRAY").await?;
+    {
+        let mut guard = ACTIVE_XRAY.lock().unwrap();
+        *guard = Some(xray_child);
+    }
+    Ok(())
+}
+
+async fn start_singbox_tun_front(
+    app: &AppHandle,
+    local_port: u16,
+    sudo_password: Option<String>,
+) -> Result<(), String> {
+    let temp_dir = std::env::temp_dir().join("v2ray_test_configs");
+    let exe_dir = sidecar_workdir(app);
+    let bin_dir = {
+        use tauri::Manager;
+        app.path()
+            .resource_dir()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap())
+            .join("bin")
+    };
+    let protect = crate::singbox_config::collect_protect_paths(&[exe_dir, bin_dir]);
+    let sb_config = crate::singbox_config::generate_singbox_tun_config(local_port, &protect);
+    let sb_config_path = temp_dir.join("active_singbox_tun.json");
+    fs::write(
+        &sb_config_path,
+        serde_json::to_string_pretty(&sb_config).unwrap_or_else(|_| sb_config.to_string()),
+    )
+    .map_err(|e| e.to_string())?;
+    println!(
+        "[start_proxy] sing-box TUN config written to {}",
+        sb_config_path.display()
+    );
+
+    #[cfg(target_os = "linux")]
+    {
+        start_singbox_linux_sudo(&sb_config_path, sudo_password).await?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = sudo_password;
+        let sb_cfg = sb_config_path.to_string_lossy().to_string();
+        let sb_child = spawn_sidecar(app, "sing-box", &["run", "-c", &sb_cfg], "SINGBOX").await?;
+        let mut guard = ACTIVE_SINGBOX.lock().unwrap();
+        *guard = Some(sb_child);
+    }
+
+    if let Ok(mut tun_active) = TUN_ACTIVE.lock() {
+        *tun_active = true;
+    }
+    Ok(())
+}
+
+async fn stop_proxy_inner(clear_system_proxy: bool) -> Result<(), String> {
+    let was_tun = {
+        let mut tun_active = TUN_ACTIVE.lock().unwrap();
+        let v = *tun_active;
+        *tun_active = false;
+        v
+    };
+
+    // Stop sing-box first (TUN owner), then Xray
+    let singbox_pid = {
+        let mut guard = ACTIVE_SINGBOX.lock().unwrap();
+        guard.take().map(|child| {
+            let pid = child.pid();
+            let _ = child.kill();
+            pid
+        })
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(pid) = singbox_pid {
+            force_kill_pid(pid);
+        }
+        if was_tun {
+            force_kill_image("sing-box.exe");
+            force_kill_image("sing-box-x86_64-pc-windows-msvc.exe");
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = singbox_pid;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        stop_linux_sudo_singbox();
+    }
+
+    stop_xray_only().await;
+
+    if was_tun {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        remove_tun_device();
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+
+    if clear_system_proxy {
+        let sysproxy = Sysproxy {
+            enable: false,
+            host: "127.0.0.1".to_string(),
+            port: 10808,
+            bypass: "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*".to_string(),
+        };
+        let _ = sysproxy.set_system_proxy();
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -425,280 +610,70 @@ pub async fn start_proxy(
     tun_mode: bool,
     sudo_password: Option<String>,
 ) -> Result<(), String> {
-    println!("[start_proxy] target: {}, tun_mode: {}, linux_sudo: {}", target.id.clone(), tun_mode, sudo_password.is_some());
-    // 1. Kill existing xray if any
-    let _ = stop_proxy().await;
+    let _op = PROXY_OP.lock().await;
 
-    // Stale Wintun adapters block autoSystemRoutingTable on the next start
-    let tun_bind = if tun_mode {
-        remove_tun_device();
-        // Give Windows a moment to finish device removal
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        detect_physical_bind()
-    } else {
-        None
-    };
-
-    // 2. Generate config
-    let config = crate::xray_config::generate_xray_config_mixed_with_bind(
-        &target,
-        local_port,
+    println!(
+        "[start_proxy] target: {}, tun_mode: {}, linux_sudo: {}, tun_front_alive: {}",
+        target.id.clone(),
         tun_mode,
-        tun_bind,
+        sudo_password.is_some(),
+        tun_front_running()
     );
 
-    // 3. Write config to temp file
-    let temp_dir = std::env::temp_dir().join("v2ray_test_configs");
-    let _ = fs::create_dir_all(&temp_dir);
-    let config_path = temp_dir.join("active_proxy.json");
-    fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_else(|_| config.to_string()))
-        .map_err(|e| e.to_string())?;
-    println!("[start_proxy] config written to {}", config_path.display());
-
-    // 4. Start xray
-    #[cfg(target_os = "linux")]
-    let started_linux_sudo = if tun_mode {
-        // Mirror v2rayN CoreAdminManager.RunProcessAsLinuxSudo
-        let password = sudo_password.clone().unwrap_or_default();
-        if !password.is_empty() {
-            if let Ok(mut pwd) = LINUX_SUDO_PWD.lock() {
-                *pwd = Some(password.clone());
-            }
-        }
-
-        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let sidecar_dir = exe.parent().ok_or("no exe dir")?;
-        let mut xray_path = None;
-        if let Ok(entries) = std::fs::read_dir(sidecar_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if (name == "xray" || name.starts_with("xray-")) && !name.ends_with(".json") {
-                    xray_path = Some(entry.path());
-                    break;
-                }
-            }
-        }
-        let path_to_run = xray_path
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|| "xray".to_string());
-
-        let already_root = is_elevated::is_elevated();
-        let mut child = if already_root {
-            std::process::Command::new(&path_to_run)
-                .arg("run")
-                .arg("-config")
-                .arg(config_path.to_string_lossy().to_string())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("Failed to run xray: {}", e))?
-        } else {
-            let mut child = std::process::Command::new("sudo")
-                .arg("-S")
-                .arg("--")
-                .arg(&path_to_run)
-                .arg("run")
-                .arg("-config")
-                .arg(config_path.to_string_lossy().to_string())
-                .stdin(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("Failed to run sudo: {}", e))?;
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(format!("{}\n", password).as_bytes());
-            }
-            child
-        };
-
-        let pid = child.id();
-        crate::track_pid(pid);
-        if let Ok(mut guard) = LINUX_SUDO_PID.lock() {
-            *guard = Some(pid);
-        }
-
-        if let Some(stdout) = child.stdout.take() {
-            std::thread::spawn(move || {
-                use std::io::{BufRead, BufReader};
-                let reader = BufReader::new(stdout);
-                for line in reader.lines().flatten() {
-                    println!("[XRAY SUDO STDOUT] {}", line);
-                }
-            });
-        }
-        if let Some(stderr) = child.stderr.take() {
-            std::thread::spawn(move || {
-                use std::io::{BufRead, BufReader};
-                let reader = BufReader::new(stderr);
-                for line in reader.lines().flatten() {
-                    eprintln!("[XRAY SUDO STDERR] {}", line);
-                }
-            });
-        }
-
-        if let Ok(mut guard) = LINUX_SUDO_CHILD.lock() {
-            *guard = Some(child);
-        }
-        true
-    } else {
-        false
-    };
-    #[cfg(not(target_os = "linux"))]
-    let started_linux_sudo = false;
-    #[cfg(not(target_os = "linux"))]
-    let _ = sudo_password;
-
-    if !started_linux_sudo {
-        // Find the bin directory to use as current_dir so wintun.dll is found
-        use tauri::Manager;
-        let resource_dir = app.path().resource_dir().unwrap_or_else(|_| std::env::current_dir().unwrap());
-        let bin_dir = resource_dir.join("bin");
-
-        // wintun.dll must sit next to the sidecar executable
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
-
+    if tun_mode {
         #[cfg(target_os = "windows")]
-        {
-            let target_dll = exe_dir.join("wintun.dll");
-            let candidates = [
-                bin_dir.join("wintun.dll"),
-                resource_dir.join("wintun.dll"),
-                resource_dir.join("bin").join("wintun.dll"),
-            ];
-            for source_dll in candidates {
-                if source_dll.exists() {
-                    let _ = std::fs::copy(&source_dll, &target_dll);
-                    break;
-                }
-            }
-        }
-
-        let mut cmd = app.shell().sidecar("xray").map_err(|e| e.to_string())?;
-
-        cmd = cmd
-            .current_dir(&exe_dir)
-            .arg("run")
-            .arg("-config")
-            .arg(config_path.to_string_lossy().to_string());
-
-        let path_env = std::env::var("PATH").unwrap_or_default();
-        #[cfg(target_os = "windows")]
-        {
-            cmd = cmd.env(
-                "PATH",
-                format!("{};{};{}", exe_dir.display(), bin_dir.display(), path_env),
+        if !is_elevated::is_elevated() {
+            return Err(
+                "TUN mode requires administrator privileges (sing-box needs admin for Wintun)"
+                    .into(),
             );
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            cmd = cmd.env(
-                "PATH",
-                format!("{}:{}:{}", exe_dir.display(), bin_dir.display(), path_env),
-            );
-        }
-
-        match cmd.spawn() {
-            Ok((mut rx, child)) => {
-                crate::track_pid(child.pid());
-                let mut guard = ACTIVE_XRAY.lock().unwrap();
-                *guard = Some(child);
-
-                tokio::spawn(async move {
-                    while let Some(event) = rx.recv().await {
-                        match event {
-                            tauri_plugin_shell::process::CommandEvent::Stdout(line) => {
-                                println!("[XRAY STDOUT] {}", String::from_utf8_lossy(&line));
-                            }
-                            tauri_plugin_shell::process::CommandEvent::Stderr(line) => {
-                                eprintln!("[XRAY STDERR] {}", String::from_utf8_lossy(&line));
-                            }
-                            tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
-                                println!("[XRAY EXITED] code: {:?}", payload.code);
-                            }
-                            _ => {}
-                        }
-                    }
-                });
-            }
-            Err(e) => return Err(e.to_string()),
         }
     }
 
-    if let Ok(mut tun_active) = TUN_ACTIVE.lock() {
-        *tun_active = tun_mode;
+    // Soft switch: keep sing-box TUN, only reload Xray outbound (no Wintun recreate / no network flap).
+    if tun_mode && tun_front_running() {
+        println!("[start_proxy] soft reconnect — restart Xray only, keep sing-box TUN");
+        stop_xray_only().await;
+        if wait_port_free(local_port, 4000).await.is_ok() {
+            write_and_start_xray(&app, &target, local_port).await?;
+            wait_for_socks_port(local_port, 5000).await?;
+            update_system_proxy("clear".into(), local_port)?;
+            return Ok(());
+        }
+        eprintln!("[start_proxy] soft reconnect port busy; falling back to full restart");
     }
+
+    // Full stop when leaving TUN, first connect, TUN front dead, or soft-reconnect failed.
+    let _ = stop_proxy_inner(false).await;
+    if tun_mode {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        remove_tun_device();
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    wait_port_free(local_port, 5000).await?;
+
+    write_and_start_xray(&app, &target, local_port).await?;
 
     if tun_mode {
-        // Host route must exist before/with TUN default route or uplink loops into itself.
-        ensure_proxy_host_route(&target.address);
-        if let Ok(mut guard) = TUN_SERVER_IP.lock() {
-            *guard = Some(target.address.clone());
+        wait_for_socks_port(local_port, 5000).await?;
+        start_singbox_tun_front(&app, local_port, sudo_password).await?;
+        update_system_proxy("clear".into(), local_port)?;
+    } else {
+        #[cfg(not(target_os = "linux"))]
+        let _ = sudo_password;
+        if let Ok(mut tun_active) = TUN_ACTIVE.lock() {
+            *tun_active = false;
         }
-        // Wait for adapter, force split default routes, re-assert host route.
-        let server_ip = target.address.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
-            ensure_tun_routes();
-            ensure_proxy_host_route(&server_ip);
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            ensure_tun_routes();
-            ensure_proxy_host_route(&server_ip);
-        });
-    } else if let Ok(mut guard) = TUN_SERVER_IP.lock() {
-        *guard = None;
+        update_system_proxy(system_proxy_mode, local_port)?;
     }
-
-    // Keep user's system-proxy preference (do not clear when TUN is on).
-    update_system_proxy(system_proxy_mode, local_port)?;
 
     Ok(())
 }
 
 #[tauri::command]
 pub async fn stop_proxy() -> Result<(), String> {
-    let was_tun = {
-        let mut tun_active = TUN_ACTIVE.lock().unwrap();
-        let v = *tun_active;
-        *tun_active = false;
-        v
-    };
-
-    {
-        let mut guard = ACTIVE_XRAY.lock().unwrap();
-        if let Some(child) = guard.take() {
-            let _ = child.kill();
-        }
-    }
-
-    // v2rayN CoreAdminManager.KillProcessAsLinuxSudo
-    #[cfg(target_os = "linux")]
-    {
-        stop_linux_sudo_xray();
-    }
-
-    if was_tun {
-        if let Ok(mut guard) = TUN_SERVER_IP.lock() {
-            if let Some(ip) = guard.take() {
-                clear_proxy_host_route(&ip);
-            }
-        }
-        clear_tun_split_routes();
-        // Wait for xray to release the adapter, then remove it
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        remove_tun_device();
-    }
-
-    let sysproxy = Sysproxy {
-        enable: false,
-        host: "127.0.0.1".to_string(),
-        port: 10808,
-        bypass: "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*".to_string(),
-    };
-    let _ = sysproxy.set_system_proxy();
-    Ok(())
+    let _op = PROXY_OP.lock().await;
+    stop_proxy_inner(true).await
 }
 
 #[tauri::command]
@@ -747,9 +722,8 @@ pub async fn get_proxy_stats(app: AppHandle, api_port: u16) -> Result<ProxyStats
         .arg("-server")
         .arg(format!("127.0.0.1:{}", api_port));
 
-    // Use spawn and timeout to prevent hanging xray processes
     let (mut rx, child) = cmd.spawn().map_err(|e| e.to_string())?;
-    
+
     let output = match tokio::time::timeout(std::time::Duration::from_secs(1), async {
         let mut stdout_str = String::new();
         while let Some(event) = rx.recv().await {
@@ -758,20 +732,25 @@ pub async fn get_proxy_stats(app: AppHandle, api_port: u16) -> Result<ProxyStats
             }
         }
         stdout_str
-    }).await {
+    })
+    .await
+    {
         Ok(s) => s,
         Err(_) => {
             let _ = child.kill();
             return Err("Timeout".to_string());
         }
     };
-    
+
     let parsed: Value = serde_json::from_str(&output).unwrap_or(Value::Null);
     let mut stats = ProxyStats::default();
 
     if let Some(stat_array) = parsed.get("stat").and_then(|v| v.as_array()) {
         for item in stat_array {
-            if let (Some(name), Some(value)) = (item.get("name").and_then(|v| v.as_str()), item.get("value").and_then(|v| v.as_u64())) {
+            if let (Some(name), Some(value)) = (
+                item.get("name").and_then(|v| v.as_str()),
+                item.get("value").and_then(|v| v.as_u64()),
+            ) {
                 if name == "outbound>>>proxy>>>traffic>>>uplink" {
                     stats.uplink = value;
                 } else if name == "outbound>>>proxy>>>traffic>>>downlink" {
