@@ -90,7 +90,7 @@ button:hover, .btn:hover {
 }
 
 .dark .acrylic-active {
-  background-color: rgba(11, 15, 25, 0.853) !important;
+  background-color: rgba(11, 15, 25, 0.827) !important;
 }
 
 @theme inline {

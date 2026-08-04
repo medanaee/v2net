@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { ArrowRight, ArrowLeft, Sliders, Activity, Sun, Moon, Sparkles, Plus, Trash2, Globe } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Sliders, Activity, Sun, Moon, Sparkles, Plus, Trash2, Globe, FolderPlus, Edit2, Save, X } from 'lucide-react';
 import { useConfigStore } from '../store/useConfigStore';
 import { Button } from './ui/button';
 import { Switch } from './ui/switch';
@@ -11,6 +11,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "./ui/alert-dialog";
 import { Checkbox } from './ui/checkbox';
 import { NumberInput } from './ui/number-input';
 import { SimpleNumberInput } from './ui/simple-number-input';
@@ -32,10 +43,18 @@ export const SettingsModal: React.FC = () => {
     toggleTheme,
     toggleAcrylicBlur,
     setLanguage,
+    groups,
+    addGroup,
+    renameGroup,
+    deleteGroup,
   } = useConfigStore();
 
-  const [activeTab, setActiveTab] = useState<'general' | 'testing' | 'connection'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'groups' | 'testing' | 'connection'>('general');
   const [newUrlInput, setNewUrlInput] = useState('');
+  
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState('');
+  const [newGroupInput, setNewGroupInput] = useState('');
 
   if (!isSettingsOpen) return null;
 
@@ -120,6 +139,18 @@ export const SettingsModal: React.FC = () => {
           >
             <Sliders className="w-4 h-4" />
             <span>{t('general')}</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('groups')}
+            className={`w-full h-8 px-3 flex items-center gap-2 rounded transition-colors cursor-pointer ${
+              activeTab === 'groups'
+                ? 'bg-blue-600 text-white font-semibold shadow-sm'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+          >
+            <FolderPlus className="w-4 h-4" />
+            <span>{t('groupsManagement')}</span>
           </button>
 
           <button
@@ -223,6 +254,132 @@ export const SettingsModal: React.FC = () => {
             </div>
           )}
 
+          {activeTab === 'groups' && (
+            <div className="space-y-4 w-full max-w-xl">
+              <div className="border-b pb-3 w-full text-start">
+                <h3 className="text-sm font-bold">{t('groupsManagement')}</h3>
+              </div>
+
+              {/* Add New Group */}
+              <SettingCard className="space-y-3">
+                <span className="font-semibold text-xs">{t('createGroupTitle')}</span>
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (newGroupInput.trim()) {
+                      addGroup(newGroupInput);
+                      setNewGroupInput('');
+                    }
+                  }} 
+                  className="flex gap-2 pt-2"
+                >
+                  <input
+                    type="text"
+                    placeholder={t('groupNamePlaceholder')}
+                    value={newGroupInput}
+                    onChange={(e) => setNewGroupInput(e.target.value)}
+                    className="bg-card border border-border text-foreground rounded px-2 py-1 outline-none focus:border-primary transition-colors flex-1 text-xs ltr:text-left rtl:text-right"
+                  />
+                  <Button type="submit" size="sm" className="gap-1">
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{t('add')}</span>
+                  </Button>
+                </form>
+              </SettingCard>
+
+              {/* Group List */}
+              <SettingCard className="space-y-3">
+                <div className="space-y-2">
+                  {groups.map((group) => (
+                    <div
+                      key={group.id}
+                      className="flex items-center justify-between p-2 rounded bg-muted/50 border border-border/50 text-xs transition-colors"
+                    >
+                      {editingGroupId === group.id ? (
+                        <div className="flex items-center gap-2 flex-1 ltr:mr-2 rtl:ml-2">
+                          <input
+                            type="text"
+                            value={editingGroupName}
+                            onChange={(e) => setEditingGroupName(e.target.value)}
+                            className="bg-card border border-border text-foreground rounded px-2 py-1 outline-none focus:border-primary flex-1 text-xs"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                renameGroup(group.id, editingGroupName);
+                                setEditingGroupId(null);
+                              } else if (e.key === 'Escape') {
+                                setEditingGroupId(null);
+                              }
+                            }}
+                          />
+                          <button
+                            onClick={() => {
+                              renameGroup(group.id, editingGroupName);
+                              setEditingGroupId(null);
+                            }}
+                            className="text-emerald-500 hover:text-emerald-400 p-1"
+                            title={t('save')}
+                          >
+                            <Save className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setEditingGroupId(null)}
+                            className="text-muted-foreground hover:text-foreground p-1"
+                            title={t('cancel')}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="font-semibold font-mono text-[11px] ltr:text-left rtl:text-right">{group.name}</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => {
+                                setEditingGroupId(group.id);
+                                setEditingGroupName(group.name);
+                              }}
+                              className="text-blue-500 hover:text-blue-400 p-1"
+                              title={t('rename')}
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            {groups.length > 1 && group.id !== 'default_group' && (
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <button
+                                    className="text-red-400 hover:text-red-500 p-1"
+                                    title={t('deleteGroup')}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>{t('deleteGroup')}</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      {t('confirmDeleteGroup')}
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => deleteGroup(group.id)} className="bg-red-600 text-white hover:bg-red-700">
+                                      {t('delete')}
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </SettingCard>
+            </div>
+          )}
+
           {activeTab === 'testing' && (
             <div className="space-y-6 w-full max-w-xl">
               <div className="border-b pb-3 w-full text-start">
@@ -284,10 +441,10 @@ export const SettingsModal: React.FC = () => {
                     return (
                       <div
                         key={url}
-                        className={`flex items-center justify-between p-2 rounded bg-card/50 border rounded text-xs transition-colors ${
+                        className={`flex items-center justify-between p-2 rounded bg-muted/50 border rounded text-xs transition-colors ${
                           isSelected
-                            ? 'border-blue-500/50 bg-blue-500/10'
-                            : 'border-border/50 bg-muted'
+                            ? 'border-blue-500/50'
+                            : 'border-border/50'
                         }`}
                       >
                         <div className="flex items-center gap-3 truncate ltr:text-left rtl:text-right font-mono">

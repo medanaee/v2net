@@ -17,6 +17,7 @@ interface ConfigState {
   groups: Group[];
   activeGroupId: string;
   addGroup: (name: string) => void;
+  renameGroup: (id: string, newName: string) => void;
   deleteGroup: (id: string) => void;
   setActiveGroupId: (id: string) => void;
 
@@ -131,6 +132,14 @@ export const useConfigStore = create<ConfigState>()(
     set((state) => ({
       groups: [...state.groups, newGroup],
       activeGroupId: newGroup.id,
+    }));
+  },
+
+  renameGroup: (id: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    set((state) => ({
+      groups: state.groups.map(g => g.id === id ? { ...g, name: trimmed } : g),
     }));
   },
 

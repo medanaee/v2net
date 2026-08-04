@@ -22,6 +22,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "./ui/alert-dialog";
 
 export const TitleBar: React.FC = () => {
   const { t } = useTranslation();
@@ -127,15 +138,32 @@ export const TitleBar: React.FC = () => {
 
           {/* Delete Active Group Button if >1 groups */}
           {groups.length > 1 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => deleteGroup(activeGroupId)}
-              className="h-7 w-7 text-red-500 hover:bg-red-500/10"
-              title={t('deleteGroup')}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-red-500 hover:bg-red-500/10"
+                  title={t('deleteGroup')}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{t('deleteGroup')}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t('confirmDeleteGroup')}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => deleteGroup(activeGroupId)} className="bg-red-600 text-white hover:bg-red-700">
+                    {t('delete')}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </div>
       </div>

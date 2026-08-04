@@ -31,7 +31,7 @@ export function SimpleNumberInput({
   };
 
   return (
-    <div className={cn("flex items-center border border-zinc-500/20 dark:border-zinc-500/20 bg-zinc-500/20 rounded-lg overflow-hidden h-8 select-none shrink-0", className)}>
+    <div className={cn("flex items-center border border-zinc-500/20 dark:border-zinc-500/20 bg-input/30 rounded-lg overflow-hidden h-8 select-none shrink-0", className)}>
       <input
         type="text"
         value={value || ''}

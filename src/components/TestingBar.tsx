@@ -185,9 +185,9 @@ export const TestingBar: React.FC = () => {
       : 0;
 
   return (
-    <div className="h-12 border-t flex items-center justify-between px-4 bg-transparent border-border/50 text-xs select-none shrink-0">
-      <div className="flex items-center gap-3">
-        <div className="flex items-center bg-muted/50 border border-border/50 rounded p-0.5">
+    <div className="h-12 border-t flex items-center justify-between px-2 bg-transparent border-border/50 text-xs select-none shrink-0">
+      <div className="flex items-center gap-2">
+        <div className="flex items-center bg-muted/50 border border-border/50 rounded-md p-0.5">
           <button
             onClick={() => setTestMode('realDelay')}
             disabled={isTesting}

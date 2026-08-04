@@ -83,7 +83,7 @@ pub fn kill_tracked_pids() {
             #[cfg(target_os = "windows")]
             let _ = std::process::Command::new("taskkill")
                 .args(["/F", "/PID", &pid.to_string(), "/T"])
-                .output();
+                .spawn();
         }
     }
 }
@@ -110,16 +110,27 @@ pub fn run() {
                 #[cfg(target_os = "windows")]
                 let _ = apply_acrylic(&window, Some((18, 18, 24, 180)));
 
-                window.on_window_event(|event| match event {
-                    tauri::WindowEvent::CloseRequested { .. } => {
-                        // Clear the proxy and stop the main connection
-                        let _ = tauri::async_runtime::block_on(crate::connection::stop_proxy());
+                let app_handle = app.handle().clone();
+                let window_clone = window.clone();
+
+                window.on_window_event(move |event| match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        let _ = window_clone.hide();
                         
-                        // Cancel testing
-                        crate::tester::cancel_testing();
-                        
-                        // Force kill ONLY the xray instances we spawned
-                        kill_tracked_pids();
+                        let app_handle = app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            // Clear the proxy and stop the main connection
+                            let _ = crate::connection::stop_proxy().await;
+                            
+                            // Cancel testing
+                            crate::tester::cancel_testing();
+                            
+                            // Force kill ONLY the xray instances we spawned
+                            crate::kill_tracked_pids();
+                            
+                            app_handle.exit(0);
+                        });
                     }
                     _ => {}
                 });
