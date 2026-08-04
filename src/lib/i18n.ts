@@ -4,7 +4,7 @@ import { initReactI18next } from 'react-i18next';
 const resources = {
   fa: {
     translation: {
-      appTitle: 'Xray Batch Tester',
+      appTitle: 'v2net',
       group: 'گروه',
       mainGroup: 'گروه اصلی',
       newGroup: 'گروه جدید',
@@ -81,7 +81,7 @@ const resources = {
   },
   en: {
     translation: {
-      appTitle: 'Xray Batch Tester',
+      appTitle: 'v2net',
       group: 'Group',
       mainGroup: 'Main Group',
       newGroup: 'New Group',

@@ -95,7 +95,7 @@ export const TitleBar: React.FC = () => {
       {/* Brand & Group Selector */}
       <div className="flex items-center gap-3" data-tauri-drag-region>
         <div className="flex items-center gap-1.5 text-blue-500 font-bold text-sm pointer-events-none">
-          <ShieldCheck className="w-4 h-4" />
+          <img src="/icon.png" alt="v2net" className="w-5 h-5 object-contain pointer-events-none" />
           <span>{t('appTitle')}</span>
         </div>
 
