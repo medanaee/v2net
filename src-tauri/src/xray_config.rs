@@ -478,6 +478,7 @@ pub fn generate_xray_config_batch(targets_with_ports: &[(TestTarget, u16)]) -> V
 pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port: u16, tun_mode: bool) -> Value {
     let mut outbound = json!({
         "protocol": target.protocol,
+        "tag": "proxy",
         "settings": {}
     });
 
@@ -691,7 +692,7 @@ pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port
         "tag": "api"
     });
 
-    json!({
+    let mut config = json!({
         "log": {
             "loglevel": "warning"
         },
@@ -719,9 +720,12 @@ pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port
                     "tag": "tun-inbound",
                     "settings": {
                         "name": "xray_tun",
-                        "mtu": 1500,
-                        "gateway": ["172.19.0.1"],
-                        "autoSystemRoutingTable": ["0.0.0.0/0"]
+                        "MTU": 9000,
+                        "gateway": ["172.18.0.1/30"],
+                        "address": ["172.18.0.1/30"],
+                        "dns": ["172.18.0.1"],
+                        "autoSystemRoutingTable": ["0.0.0.0/0"],
+                        "autoOutboundsInterface": "auto"
                     },
                     "sniffing": {
                         "enabled": true,
@@ -742,10 +746,14 @@ pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port
             json!({
                 "protocol": "blackhole",
                 "tag": "block"
+            }),
+            json!({
+                "protocol": "dns",
+                "tag": "dns-out"
             })
         ],
         "routing": {
-            "domainStrategy": "AsIs",
+            "domainStrategy": "IPIfNonMatch",
             "rules": [
                 json!({
                     "type": "field",
@@ -754,10 +762,38 @@ pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port
                 }),
                 json!({
                     "type": "field",
-                    "inboundTag": ["inbound"],
+                    "inboundTag": ["tun-inbound"],
+                    "port": 53,
+                    "outboundTag": "dns-out"
+                }),
+                json!({
+                    "type": "field",
+                    "outboundTag": "direct",
+                    "process": ["xray.exe"]
+                }),
+                json!({
+                    "type": "field",
+                    "inboundTag": ["inbound", "tun-inbound"],
+                    "outboundTag": "proxy"
+                }),
+                json!({
+                    "type": "field",
+                    "port": "0-65535",
                     "outboundTag": "proxy"
                 })
             ]
         }
-    })
+    });
+
+    if tun_mode {
+        config["dns"] = json!({
+            "servers": [
+                "1.1.1.1",
+                "8.8.8.8",
+                "https://dns.google/dns-query"
+            ]
+        });
+    }
+
+    config
 }

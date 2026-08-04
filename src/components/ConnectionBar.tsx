@@ -22,19 +22,22 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
 
   React.useEffect(() => {
     // Reconnect on startup if config was active
-    if (settings.activeConfigId && !hasStarted.current) {
+    if (settings.activeConfigId && configs.length > 0 && !hasStarted.current) {
       hasStarted.current = true;
       const activeConfig = configs.find(c => c.id === settings.activeConfigId);
       if (activeConfig) {
-        startProxyWithConfig(
-          activeConfig,
-          settings.localPort || 10900,
-          settings.systemProxyMode || 'dont_change',
-          tunMode // will be false on startup
-        ).catch(console.error);
+        // Add a small delay to let backend initialize
+        setTimeout(() => {
+          startProxyWithConfig(
+            activeConfig,
+            settings.localPort || 10900,
+            settings.systemProxyMode || 'dont_change',
+            useConfigStore.getState().tunMode // grab latest state
+          ).catch(console.error);
+        }, 500);
       }
     }
-  }, [settings.activeConfigId, configs, settings.localPort, settings.systemProxyMode, tunMode]);
+  }, [settings.activeConfigId, configs, settings.localPort, settings.systemProxyMode]);
 
   const handleTunChange = async (checked: boolean) => {
     if (checked) {

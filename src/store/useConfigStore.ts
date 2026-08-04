@@ -482,6 +482,7 @@ export const useConfigStore = create<ConfigState>()(
         return {
           ...currentState,
           ...persistedState,
+          tunMode: persistedState.tunMode ?? false,
           settings: {
             ...currentState.settings,
             ...(persistedState.settings || {}),
@@ -496,6 +497,7 @@ export const useConfigStore = create<ConfigState>()(
         configs: state.configs,
         settings: state.settings,
         activeGroupId: state.activeGroupId,
+        tunMode: state.tunMode,
       }),
     }
   )
