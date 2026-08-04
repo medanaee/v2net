@@ -475,7 +475,7 @@ pub fn generate_xray_config_batch(targets_with_ports: &[(TestTarget, u16)]) -> V
     })
 }
 
-pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port: u16) -> Value {
+pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port: u16, tun_mode: bool) -> Value {
     let mut outbound = json!({
         "protocol": target.protocol,
         "settings": {}
@@ -708,7 +708,31 @@ pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port
                 "statsOutboundUplink": true
             }
         },
-        "inbounds": [inbound, api_inbound],
+        "inbounds": if tun_mode {
+            vec![
+                inbound,
+                api_inbound,
+                json!({
+                    "port": 0,
+                    "listen": "127.0.0.1",
+                    "protocol": "tun",
+                    "tag": "tun-inbound",
+                    "settings": {
+                        "name": "xray_tun",
+                        "mtu": 1500,
+                        "gateway": ["172.19.0.1"],
+                        "autoSystemRoutingTable": ["0.0.0.0/0"]
+                    },
+                    "sniffing": {
+                        "enabled": true,
+                        "destOverride": ["http", "tls"],
+                        "routeOnly": true
+                    }
+                })
+            ]
+        } else {
+            vec![inbound, api_inbound]
+        },
         "outbounds": [
             outbound,
             json!({

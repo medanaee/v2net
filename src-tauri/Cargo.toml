@@ -29,4 +29,6 @@ tauri-plugin-shell = "2.3.5"
 futures-util = "0.3.33"
 sysproxy = "0.3.0"
 tauri-plugin-clipboard-manager = "2"
+is_elevated = "0.1.2"
+tauri-plugin-os = "2.3.2"
 

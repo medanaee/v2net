@@ -8,11 +8,13 @@ import { ConfigTable } from './components/ConfigTable';
 import { TestingBar } from './components/TestingBar';
 import { ConnectionBar } from './components/ConnectionBar';
 import { SettingsModal } from './components/SettingsModal';
+import { SudoPasswordModal } from './components/SudoPasswordModal';
 import { useConfigStore } from './store/useConfigStore';
 import i18n from './lib/i18n';
 
 export const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [sudoAction, setSudoAction] = useState<((pwd: string) => void) | null>(null);
   const { settings, isSettingsOpen, updateConfigTraffic } = useConfigStore();
   const prevStats = useRef({ tx: 0, rx: 0 });
 
@@ -149,9 +151,18 @@ export const App: React.FC = () => {
           <TestingBar />
 
           {/* Proxy Connection Bar */}
-          <ConnectionBar />
+          <ConnectionBar onRequireSudo={setSudoAction} />
         </div>
       )}
+
+      <SudoPasswordModal 
+        isOpen={!!sudoAction} 
+        onClose={() => setSudoAction(null)}
+        onSubmit={(pwd) => {
+          sudoAction?.(pwd);
+          setSudoAction(null);
+        }}
+      />
     </div>
   );
 };

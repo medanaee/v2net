@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { ArrowDown, ArrowUp, Zap } from 'lucide-react';
+import { ArrowDown, ArrowUp, Zap, MoreVertical, CheckCircle2, Play, QrCode, ClipboardCopy, Trash2, Edit } from 'lucide-react';
+import { startProxyWithConfig } from '../lib/proxy';
 import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useConfigStore } from '../store/useConfigStore';
@@ -108,35 +109,12 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
 
   const handleConnect = async (item: ConfigItem) => {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('start_proxy', {
-        target: {
-          id: item.id,
-          test_url: '',
-          test_type: '',
-          protocol: item.protocol,
-          address: item.address,
-          port: item.port,
-          uuid: item.uuid,
-          secret: item.secret,
-          method: item.type, // Map type to method for ss
-          network: item.network,
-          header_type: item.headerType,
-          path: item.path,
-          host: item.host,
-          sni: item.sni,
-          tls: item.tls,
-          alpn: item.alpn,
-          pbk: item.pbk,
-          sid: item.sid,
-          fp: item.fp,
-          flow: item.flow,
-          mode: item.mode,
-          extra: item.extra,
-        },
-        localPort: settings.localPort || 10900,
-        systemProxyMode: settings.systemProxyMode || 'dont_change',
-      });
+      await startProxyWithConfig(
+        item,
+        settings.localPort || 10900,
+        settings.systemProxyMode || 'dont_change',
+        useConfigStore.getState().tunMode
+      );
       updateSettings({ activeConfigId: item.id });
     } catch (e) {
       console.error('Failed to connect:', e);

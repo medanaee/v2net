@@ -77,6 +77,10 @@ interface ConfigState {
   toggleTheme: () => void;
   toggleAcrylicBlur: () => void;
   setLanguage: (lang: 'fa' | 'en') => void;
+
+  // Transient state
+  tunMode: boolean;
+  setTunMode: (enabled: boolean) => void;
 }
 
 
@@ -417,6 +421,9 @@ export const useConfigStore = create<ConfigState>()(
 
   isSettingsOpen: false,
   setIsSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),
+
+  tunMode: false,
+  setTunMode: (enabled: boolean) => set({ tunMode: enabled }),
 
   settings: {
     theme: 'dark',

@@ -37,6 +37,9 @@
     ],
     "externalBin": [
       "bin/xray"
+    ],
+    "resources": [
+      "bin/wintun.dll"
     ]
   }
 }

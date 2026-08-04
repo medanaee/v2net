@@ -75,7 +75,7 @@ fn apply_window_vibrancy(window: WebviewWindow, enabled: bool) -> Result<(), Str
     Ok(())
 }
 
-use connection::{set_system_proxy_mode, start_proxy, stop_proxy, get_proxy_stats};
+use connection::{set_system_proxy_mode, start_proxy, stop_proxy, get_proxy_stats, check_elevation, restart_as_admin};
 use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
 
 use std::sync::Mutex;
@@ -103,6 +103,7 @@ pub fn kill_tracked_pids() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
@@ -116,7 +117,9 @@ pub fn run() {
             start_proxy,
             stop_proxy,
             set_system_proxy_mode,
-            get_proxy_stats
+            get_proxy_stats,
+            check_elevation,
+            restart_as_admin
         ])
         .setup(|app| {
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
