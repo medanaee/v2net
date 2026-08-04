@@ -137,7 +137,7 @@ export const TitleBar: React.FC = () => {
           </Button>
 
           {/* Delete Active Group Button if >1 groups */}
-          {groups.length > 1 && (
+          {groups.length > 1 && activeGroupId !== 'default_group' && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button

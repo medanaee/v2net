@@ -111,7 +111,7 @@ const idbStorage: StateStorage = {
 
 const DEFAULT_GROUP: Group = {
   id: 'default_group',
-  name: 'گروه اصلی (Main)',
+  name: 'Main',
   createdTime: Date.now(),
 };
 
@@ -136,6 +136,7 @@ export const useConfigStore = create<ConfigState>()(
   },
 
   renameGroup: (id: string, newName: string) => {
+    if (id === 'default_group') return;
     const trimmed = newName.trim();
     if (!trimmed) return;
     set((state) => ({
@@ -145,6 +146,7 @@ export const useConfigStore = create<ConfigState>()(
 
   deleteGroup: (id: string) => {
     set((state) => {
+      if (id === 'default_group') return state;
       if (state.groups.length <= 1) return state; // keep at least one group
       const newGroups = state.groups.filter((g) => g.id !== id);
       const newActiveId =
@@ -386,8 +388,8 @@ export const useConfigStore = create<ConfigState>()(
 
   settings: {
     theme: 'dark',
-    language: 'fa',
-    acrylicBlur: true,
+    language: 'en',
+    acrylicBlur: false,
     testWorkers: 40,
     multiStageTesting: false,
     multiStageCount: 3,

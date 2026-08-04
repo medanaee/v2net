@@ -334,16 +334,18 @@ export const SettingsModal: React.FC = () => {
                         <>
                           <span className="font-semibold font-mono text-[11px] ltr:text-left rtl:text-right">{group.name}</span>
                           <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              onClick={() => {
-                                setEditingGroupId(group.id);
-                                setEditingGroupName(group.name);
-                              }}
-                              className="text-blue-500 hover:text-blue-400 p-1"
-                              title={t('rename')}
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
+                            {group.id !== 'default_group' && (
+                              <button
+                                onClick={() => {
+                                  setEditingGroupId(group.id);
+                                  setEditingGroupName(group.name);
+                                }}
+                                className="text-blue-500 hover:text-blue-400 p-1"
+                                title={t('rename')}
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             {groups.length > 1 && group.id !== 'default_group' && (
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>

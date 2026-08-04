@@ -160,8 +160,8 @@ const resources = {
 
 i18n.use(initReactI18next).init({
   resources,
-  lng: 'fa', // Default language Persian
-  fallbackLng: 'fa',
+  lng: 'en', // Default language English
+  fallbackLng: 'en',
   interpolation: {
     escapeValue: false,
   },
