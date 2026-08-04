@@ -75,7 +75,7 @@ fn apply_window_vibrancy(window: WebviewWindow, enabled: bool) -> Result<(), Str
     Ok(())
 }
 
-use connection::{set_system_proxy_mode, start_proxy, stop_proxy};
+use connection::{set_system_proxy_mode, start_proxy, stop_proxy, get_proxy_stats};
 use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
 
 use std::sync::Mutex;
@@ -115,9 +115,34 @@ pub fn run() {
             apply_window_vibrancy,
             start_proxy,
             stop_proxy,
-            set_system_proxy_mode
+            set_system_proxy_mode,
+            get_proxy_stats
         ])
         .setup(|app| {
+            #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+            {
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+                if let Some(icon) = app.default_window_icon().cloned() {
+                    let _tray = TrayIconBuilder::new()
+                        .icon(icon)
+                        .on_tray_icon_event(|tray, event| match event {
+                            TrayIconEvent::Click {
+                                button: MouseButton::Left,
+                                button_state: MouseButtonState::Up,
+                                ..
+                            } => {
+                                let app = tray.app_handle();
+                                if let Some(window) = app.get_webview_window("main") {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                            _ => {}
+                        })
+                        .build(app);
+                }
+            }
+
             let main_window = app.get_webview_window("main");
             if let Some(window) = main_window {
                 #[cfg(target_os = "windows")]

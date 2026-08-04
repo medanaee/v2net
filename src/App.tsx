@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { TitleBar } from './components/TitleBar';
 import { GroupTabs } from './components/GroupTabs';
@@ -11,7 +13,42 @@ import i18n from './lib/i18n';
 
 export const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
-  const { settings, isSettingsOpen } = useConfigStore();
+  const { settings, isSettingsOpen, updateConfigTraffic } = useConfigStore();
+  const prevStats = useRef({ tx: 0, rx: 0 });
+
+  useEffect(() => {
+    // Only poll for traffic stats in the 'main' window to prevent duplicate counting in multi-window scenarios
+    if (getCurrentWindow().label !== 'main') return;
+
+    if (!settings.activeConfigId) {
+      prevStats.current = { tx: 0, rx: 0 };
+      return;
+    }
+
+    const intervalId = setInterval(async () => {
+      try {
+        const stats: any = await invoke('get_proxy_stats', { apiPort: (settings.localPort || 10900) + 1 });
+        
+        if (stats) {
+          const currentTx = stats.uplink || 0;
+          const currentRx = stats.downlink || 0;
+
+          const txDiff = currentTx >= prevStats.current.tx ? currentTx - prevStats.current.tx : currentTx;
+          const rxDiff = currentRx >= prevStats.current.rx ? currentRx - prevStats.current.rx : currentRx;
+
+          if (txDiff > 0 || rxDiff > 0) {
+            updateConfigTraffic(settings.activeConfigId!, txDiff, rxDiff);
+          }
+
+          prevStats.current = { tx: currentTx, rx: currentRx };
+        }
+      } catch (e) {
+        // silently ignore
+      }
+    }, 500);
+
+    return () => clearInterval(intervalId);
+  }, [settings.activeConfigId, settings.localPort, updateConfigTraffic]);
 
   useEffect(() => {
     document.documentElement.dir = settings.language === 'fa' ? 'rtl' : 'ltr';

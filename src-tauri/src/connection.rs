@@ -1,6 +1,7 @@
 use serde_json::Value;
 use std::fs;
 use std::sync::Mutex;
+use serde::{Deserialize, Serialize};
 use sysproxy::Sysproxy;
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
@@ -91,4 +92,40 @@ fn update_system_proxy(mode: String, port: u16) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct ProxyStats {
+    pub uplink: u64,
+    pub downlink: u64,
+}
+
+#[tauri::command]
+pub async fn get_proxy_stats(app: AppHandle, api_port: u16) -> Result<ProxyStats, String> {
+    let mut cmd = app.shell().sidecar("xray").map_err(|e| e.to_string())?;
+    cmd = cmd
+        .arg("api")
+        .arg("statsquery")
+        .arg("-server")
+        .arg(format!("127.0.0.1:{}", api_port));
+
+    let output = cmd.output().await.map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    let parsed: Value = serde_json::from_str(&stdout).unwrap_or(Value::Null);
+    let mut stats = ProxyStats::default();
+
+    if let Some(stat_array) = parsed.get("stat").and_then(|v| v.as_array()) {
+        for item in stat_array {
+            if let (Some(name), Some(value)) = (item.get("name").and_then(|v| v.as_str()), item.get("value").and_then(|v| v.as_u64())) {
+                if name == "outbound>>>proxy>>>traffic>>>uplink" {
+                    stats.uplink = value;
+                } else if name == "outbound>>>proxy>>>traffic>>>downlink" {
+                    stats.downlink = value;
+                }
+            }
+        }
+    }
+
+    Ok(stats)
 }

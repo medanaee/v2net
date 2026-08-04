@@ -681,11 +681,34 @@ pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port
         }
     });
 
+    let api_inbound = json!({
+        "listen": "127.0.0.1",
+        "port": local_port + 1,
+        "protocol": "dokodemo-door",
+        "settings": {
+            "address": "127.0.0.1"
+        },
+        "tag": "api"
+    });
+
     json!({
         "log": {
             "loglevel": "warning"
         },
-        "inbounds": [inbound],
+        "api": {
+            "tag": "api",
+            "services": ["StatsService"]
+        },
+        "stats": {},
+        "policy": {
+            "system": {
+                "statsInboundDownlink": true,
+                "statsInboundUplink": true,
+                "statsOutboundDownlink": true,
+                "statsOutboundUplink": true
+            }
+        },
+        "inbounds": [inbound, api_inbound],
         "outbounds": [
             outbound,
             json!({
@@ -700,6 +723,11 @@ pub fn generate_xray_config_mixed(target: &crate::tester::TestTarget, local_port
         "routing": {
             "domainStrategy": "AsIs",
             "rules": [
+                json!({
+                    "type": "field",
+                    "inboundTag": ["api"],
+                    "outboundTag": "api"
+                }),
                 json!({
                     "type": "field",
                     "inboundTag": ["inbound"],

@@ -251,6 +251,23 @@ export const SettingsModal: React.FC = () => {
                   />
                 </div>
               </SettingCard>
+
+              {/* Show Traffic Stats Toggle */}
+              <SettingCard className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5 font-semibold text-xs">
+                      <Activity className="w-4 h-4 text-emerald-400" />
+                      <span>{t('showTrafficStats')}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground/70">{t('showTrafficStatsDesc')}</p>
+                  </div>
+                  <Switch
+                    checked={settings.showTrafficStats}
+                    onCheckedChange={(val) => updateSettings({ showTrafficStats: val })}
+                  />
+                </div>
+              </SettingCard>
             </div>
           )}
 

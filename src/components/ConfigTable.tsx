@@ -200,6 +200,24 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     return <span className="font-mono text-[11px]">{speed.toFixed(2)} MB/s</span>;
   };
 
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const renderTraffic = (tx: number, rx: number) => {
+    if (tx === 0 && rx === 0) return <span className="text-muted-foreground/70">-</span>;
+    return (
+      <div className="flex flex-col text-[10px] leading-tight justify-center h-full">
+        <span className="text-blue-500 dark:text-blue-400 font-medium">↓ {formatBytes(rx)}</span>
+        <span className="text-emerald-500 dark:text-emerald-400 font-medium">↑ {formatBytes(tx)}</span>
+      </div>
+    );
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
       {/* Table Header */}
@@ -232,6 +250,12 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
         >
           {t('upload')}{renderSortIcon('upload')}
         </div>
+        {settings.showTrafficStats && (
+          <>
+            <div className="w-24 text-left">{t('todayUsage')}</div>
+            <div className="w-24 text-left">{t('totalUsage')}</div>
+          </>
+        )}
       </div>
 
       {/* Virtualized Rows Container */}
@@ -325,6 +349,18 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
                   <div className="w-24 text-left text-muted-foreground">
                     {renderSpeedCell(item.uploadSpeed)}
                   </div>
+
+                  {/* Traffic Stats */}
+                  {settings.showTrafficStats && (
+                    <>
+                      <div className="w-24 text-left font-mono h-full">
+                        {renderTraffic(item.trafficToday?.tx || 0, item.trafficToday?.rx || 0)}
+                      </div>
+                      <div className="w-24 text-left font-mono h-full">
+                        {renderTraffic(item.trafficTotal?.tx || 0, item.trafficTotal?.rx || 0)}
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })}

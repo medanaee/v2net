@@ -77,6 +77,11 @@ const resources = {
       dontChangeProxy: 'بدون تغییر',
       port: 'پورت:',
       disconnect: 'قطع اتصال',
+      todayUsage: 'مصرف امروز',
+      totalUsage: 'کل مصرف',
+      showTrafficStats: 'نمایش مصرف ترافیک',
+      showTrafficStatsDesc: 'ستون‌های مصرف امروز و کل را در جدول کانفیگ‌ها نمایش می‌دهد',
+      hideToTray: 'پنهان کردن در System Tray',
     },
   },
   en: {
@@ -154,6 +159,11 @@ const resources = {
       dontChangeProxy: "Don't Change",
       port: 'Port:',
       disconnect: 'Disconnect',
+      todayUsage: "Today's Usage",
+      totalUsage: 'Total Usage',
+      showTrafficStats: 'Show Traffic Stats',
+      showTrafficStatsDesc: 'Show today and total traffic usage columns in the table',
+      hideToTray: 'Hide to System Tray',
     },
   },
 };

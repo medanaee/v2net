@@ -33,6 +33,10 @@ export interface ConfigItem {
   realDelay?: number | null; // ms (-1 or null if failed)
   downloadSpeed?: number | null; // Bytes/sec or MB/s
   uploadSpeed?: number | null; // Bytes/sec or MB/s
+  
+  // Traffic stats
+  trafficToday?: { tx: number; rx: number; date: string };
+  trafficTotal?: { tx: number; rx: number };
 }
 
 export interface Group {
@@ -57,4 +61,5 @@ export interface AppSettings {
   localPort: number;
   systemProxyMode: 'set' | 'clear' | 'dont_change';
   activeConfigId: string | null;
+  showTrafficStats: boolean;
 }

@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Trash2,
   Globe,
+  ArrowDownToLine,
 } from 'lucide-react';
 import { useConfigStore } from '../store/useConfigStore';
 import { Button } from './ui/button';
@@ -71,6 +72,15 @@ export const TitleBar: React.FC = () => {
   const handleClose = async () => {
     try {
       await invoke('close_window');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleHideToTray = async () => {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      await getCurrentWindow().hide();
     } catch (e) {
       console.error(e);
     }
@@ -230,6 +240,13 @@ export const TitleBar: React.FC = () => {
           title="Maximize"
         >
           <Square className="w-3 h-3" />
+        </button>
+        <button
+          onClick={handleHideToTray}
+          className="h-7 w-8 flex items-center justify-center hover:bg-muted text-muted-foreground"
+          title={t('hideToTray')}
+        >
+          <ArrowDownToLine className="w-3.5 h-3.5" />
         </button>
         <button
           onClick={handleClose}

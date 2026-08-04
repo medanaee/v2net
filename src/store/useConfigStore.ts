@@ -67,6 +67,7 @@ interface ConfigState {
       uploadSpeed?: number | null;
     }>
   ) => void;
+  updateConfigTraffic: (id: string, txDiff: number, rxDiff: number) => void;
 
   // Settings & Navigation
   isSettingsOpen: boolean;
@@ -383,6 +384,37 @@ export const useConfigStore = create<ConfigState>()(
     }));
   },
 
+  updateConfigTraffic: (id, txDiff, rxDiff) => {
+    set((state) => {
+      const todayString = new Date().toISOString().split('T')[0];
+      return {
+        configs: state.configs.map((c) => {
+          if (c.id === id) {
+            let nextToday = c.trafficToday;
+            if (!nextToday || nextToday.date !== todayString) {
+              nextToday = { tx: 0, rx: 0, date: todayString };
+            }
+            const nextTotal = c.trafficTotal || { tx: 0, rx: 0 };
+            
+            return {
+              ...c,
+              trafficToday: {
+                ...nextToday,
+                tx: nextToday.tx + txDiff,
+                rx: nextToday.rx + rxDiff,
+              },
+              trafficTotal: {
+                tx: nextTotal.tx + txDiff,
+                rx: nextTotal.rx + rxDiff,
+              }
+            };
+          }
+          return c;
+        }),
+      };
+    });
+  },
+
   isSettingsOpen: false,
   setIsSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),
 
@@ -402,6 +434,7 @@ export const useConfigStore = create<ConfigState>()(
     localPort: 10900,
     systemProxyMode: 'dont_change',
     activeConfigId: null,
+    showTrafficStats: true,
   },
 
   updateSettings: (newSettings) => {
@@ -447,6 +480,7 @@ export const useConfigStore = create<ConfigState>()(
             ...(persistedState.settings || {}),
             localPort: persistedState.settings?.localPort || 10900,
             systemProxyMode: persistedState.settings?.systemProxyMode || 'dont_change',
+            showTrafficStats: persistedState.settings?.showTrafficStats ?? true,
           },
         };
       },
