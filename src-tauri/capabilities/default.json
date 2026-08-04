@@ -1,0 +1,26 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": [
+    "*"
+  ],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "ms-settings:developers"
+        }
+      ]
+    },
+    "opener:allow-open-path",
+    "core:window:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-close",
+    "core:window:allow-toggle-maximize"
+  ]
+}
