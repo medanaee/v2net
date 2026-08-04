@@ -32,7 +32,7 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
             activeConfig,
             settings.localPort || 10900,
             settings.systemProxyMode || 'dont_change',
-            useConfigStore.getState().tunMode // grab latest state
+            false // TUN always starts off after launch
           ).catch(console.error);
         }, 500);
       }
@@ -46,13 +46,11 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
       if (osType === 'windows') {
         const isAdmin: boolean = await invoke('check_elevation');
         if (!isAdmin) {
-          // Persist TUN intent before elevation restart so auto-reconnect enables it
-          setTunMode(true);
+          // Restart elevated; user re-enables TUN manually after relaunch
           try {
             await invoke('restart_as_admin');
           } catch (e) {
             console.error(e);
-            setTunMode(false);
           }
           return;
         }

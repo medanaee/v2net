@@ -1,6 +1,7 @@
 use serde_json::Value;
 use std::fs;
 use std::sync::Mutex;
+#[cfg(target_os = "linux")]
 use std::io::Write;
 use serde::{Deserialize, Serialize};
 use sysproxy::Sysproxy;
@@ -11,6 +12,14 @@ use crate::tester::TestTarget;
 
 static ACTIVE_XRAY: Mutex<Option<tauri_plugin_shell::process::CommandChild>> = Mutex::new(None);
 static TUN_ACTIVE: Mutex<bool> = Mutex::new(false);
+static TUN_SERVER_IP: Mutex<Option<String>> = Mutex::new(None);
+/// v2rayN CoreAdminManager: track sudo-launched core PID + password for kill_as_sudo.
+#[cfg(target_os = "linux")]
+static LINUX_SUDO_PWD: Mutex<Option<String>> = Mutex::new(None);
+#[cfg(target_os = "linux")]
+static LINUX_SUDO_PID: Mutex<Option<u32>> = Mutex::new(None);
+#[cfg(target_os = "linux")]
+static LINUX_SUDO_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
 
 /// Same approach as v2rayN WindowsUtils.RemoveTunDevice.
 /// Stale Wintun adapters stay up without routes and break the next TUN start.
@@ -80,9 +89,91 @@ Write-Output ($r.InterfaceAlias + '|' + $ip + '|' + $r.NextHop)
     })
 }
 
-#[cfg(not(target_os = "windows"))]
+/// Linux: parse `ip route get` like v2rayN physical egress selection.
+#[cfg(target_os = "linux")]
+fn detect_physical_bind() -> Option<crate::xray_config::TunBindInfo> {
+    let output = std::process::Command::new("ip")
+        .args(["-4", "route", "get", "1.1.1.1"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    // e.g. "1.1.1.1 via 192.168.1.1 dev eth0 src 192.168.1.10 uid 1000"
+    let mut iface = None;
+    let mut ip = None;
+    let mut gateway = None;
+    let mut words = text.split_whitespace().peekable();
+    while let Some(w) = words.next() {
+        match w {
+            "dev" => iface = words.next().map(|s| s.to_string()),
+            "src" => ip = words.next().map(|s| s.to_string()),
+            "via" => gateway = words.next().map(|s| s.to_string()),
+            _ => {}
+        }
+    }
+    let iface = iface.filter(|s| {
+        let lower = s.to_lowercase();
+        !lower.starts_with("xray")
+            && !lower.starts_with("tun")
+            && !lower.starts_with("docker")
+            && !lower.starts_with("veth")
+            && !lower.starts_with("br-")
+            && lower != "lo"
+    })?;
+    let ip = ip?;
+    println!(
+        "[tun] physical bind: iface={}, ip={}, gateway={}",
+        iface,
+        ip,
+        gateway.as_deref().unwrap_or("")
+    );
+    Some(crate::xray_config::TunBindInfo {
+        interface_name: iface,
+        local_ip: ip,
+    })
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn detect_physical_bind() -> Option<crate::xray_config::TunBindInfo> {
     None
+}
+
+#[cfg(target_os = "linux")]
+fn linux_sudo_password() -> Option<String> {
+    LINUX_SUDO_PWD.lock().ok().and_then(|g| g.clone())
+}
+
+#[cfg(target_os = "linux")]
+fn run_as_root_shell(script: &str) {
+    if is_elevated::is_elevated() {
+        let _ = std::process::Command::new("bash")
+            .args(["-c", script])
+            .status();
+        return;
+    }
+    if let Some(password) = linux_sudo_password() {
+        let mut child = match std::process::Command::new("sudo")
+            .args(["-S", "bash", "-c", script])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[tun] sudo shell failed: {}", e);
+                return;
+            }
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(format!("{}\n", password).as_bytes());
+        }
+        let _ = child.wait();
+    } else {
+        // Best-effort without password (NOPASSWD sudo)
+        let _ = std::process::Command::new("sudo")
+            .args(["-n", "bash", "-c", script])
+            .status();
+    }
 }
 
 /// Force proxy-server /32 out the physical gateway so TUN cannot black-hole the uplink.
@@ -113,7 +204,26 @@ New-NetRoute -DestinationPrefix ($server + '/32') -InterfaceIndex $r.InterfaceIn
         .status();
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
+fn ensure_proxy_host_route(server_ip: &str) {
+    if server_ip.parse::<std::net::Ipv4Addr>().is_err() {
+        return;
+    }
+    // Keep uplink to proxy server on the physical default route.
+    let script = format!(
+        r#"
+set -e
+GW=$(ip -4 route show default | awk '/default/ {{print $3; exit}}')
+DEV=$(ip -4 route show default | awk '/default/ {{print $5; exit}}')
+if [ -z "$GW" ] || [ -z "$DEV" ]; then exit 0; fi
+ip -4 route replace {server}/32 via "$GW" dev "$DEV"
+"#,
+        server = server_ip
+    );
+    run_as_root_shell(&script);
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn ensure_proxy_host_route(_server_ip: &str) {}
 
 #[cfg(target_os = "windows")]
@@ -132,7 +242,16 @@ fn clear_proxy_host_route(server_ip: &str) {
         .status();
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
+fn clear_proxy_host_route(server_ip: &str) {
+    if server_ip.parse::<std::net::Ipv4Addr>().is_err() {
+        return;
+    }
+    let script = format!("ip -4 route del {}/32 2>/dev/null || true", server_ip);
+    run_as_root_shell(&script);
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn clear_proxy_host_route(_server_ip: &str) {}
 
 /// Force Windows to prefer xray_tun for internet traffic after the adapter is up.
@@ -194,7 +313,26 @@ Write-Output ("tun_routes_ok if=" + $idx)
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
+fn ensure_tun_routes() {
+    let script = r#"
+for i in $(seq 1 25); do
+  ip link show xray_tun >/dev/null 2>&1 && break
+  sleep 0.2
+done
+if ! ip link show xray_tun >/dev/null 2>&1; then
+  echo tun_missing
+  exit 0
+fi
+ip -4 route replace 0.0.0.0/1 dev xray_tun
+ip -4 route replace 128.0.0.0/1 dev xray_tun
+echo tun_routes_ok
+"#;
+    run_as_root_shell(script);
+    println!("[tun] linux ensure_tun_routes done");
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn ensure_tun_routes() {}
 
 #[cfg(target_os = "windows")]
@@ -215,10 +353,68 @@ foreach ($prefix in @('0.0.0.0/1','128.0.0.0/1')) {
         .status();
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
+fn clear_tun_split_routes() {
+    run_as_root_shell(
+        r#"
+ip -4 route del 0.0.0.0/1 dev xray_tun 2>/dev/null || true
+ip -4 route del 128.0.0.0/1 dev xray_tun 2>/dev/null || true
+"#,
+    );
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn clear_tun_split_routes() {}
 
-static TUN_SERVER_IP: Mutex<Option<String>> = Mutex::new(None);
+/// Same idea as v2rayN Sample/kill_as_sudo_linux_sh — kill sudo tree by PID.
+#[cfg(target_os = "linux")]
+fn kill_linux_sudo_process_tree(pid: u32) {
+    let script = format!(
+        r#"
+PID={pid}
+if ! ps -p "$PID" >/dev/null 2>&1; then exit 0; fi
+kill_children() {{
+  local parent=$1
+  local children
+  children=$(ps -o pid= --ppid "$parent" 2>/dev/null || true)
+  for child in $children; do
+    kill_children "$child"
+    kill -9 "$child" 2>/dev/null || true
+  done
+}}
+kill -15 "$PID" 2>/dev/null || true
+sleep 1
+if ps -p "$PID" >/dev/null 2>&1; then
+  kill_children "$PID"
+  kill -9 "$PID" 2>/dev/null || true
+fi
+"#,
+        pid = pid
+    );
+    run_as_root_shell(&script);
+}
+
+#[cfg(target_os = "linux")]
+fn stop_linux_sudo_xray() {
+    if let Ok(mut child_guard) = LINUX_SUDO_CHILD.lock() {
+        if let Some(mut child) = child_guard.take() {
+            let pid = child.id();
+            kill_linux_sudo_process_tree(pid);
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    if let Ok(mut pid_guard) = LINUX_SUDO_PID.lock() {
+        if let Some(pid) = pid_guard.take() {
+            kill_linux_sudo_process_tree(pid);
+        }
+    }
+    // Fallback: kill leftover xray cores started via sudo
+    run_as_root_shell("pkill -9 -x xray 2>/dev/null || true; pkill -9 -f 'xray.*run -config' 2>/dev/null || true");
+    if let Ok(mut pwd) = LINUX_SUDO_PWD.lock() {
+        *pwd = None;
+    }
+}
 
 #[tauri::command]
 pub async fn start_proxy(
@@ -260,76 +456,99 @@ pub async fn start_proxy(
     println!("[start_proxy] config written to {}", config_path.display());
 
     // 4. Start xray
-    if tun_mode && cfg!(target_os = "linux") {
-        let password = sudo_password.unwrap_or_default();
-        // Since sidecar paths are hard to resolve directly in Tauri v2 for sudo,
-        // we'll use `app.shell().sidecar("xray")` to find the path, or just run a helper script.
-        // Actually, we can just resolve the sidecar path manually or assume it's next to the exe.
-        let exe = std::env::current_exe().unwrap();
-        let sidecar_dir = exe.parent().unwrap();
-        // We look for any file starting with `xray-` (like xray-x86_64-unknown-linux-gnu)
+    #[cfg(target_os = "linux")]
+    let started_linux_sudo = if tun_mode {
+        // Mirror v2rayN CoreAdminManager.RunProcessAsLinuxSudo
+        let password = sudo_password.clone().unwrap_or_default();
+        if !password.is_empty() {
+            if let Ok(mut pwd) = LINUX_SUDO_PWD.lock() {
+                *pwd = Some(password.clone());
+            }
+        }
+
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let sidecar_dir = exe.parent().ok_or("no exe dir")?;
         let mut xray_path = None;
         if let Ok(entries) = std::fs::read_dir(sidecar_dir) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("xray-") && !name.ends_with(".json") {
+                if (name == "xray" || name.starts_with("xray-")) && !name.ends_with(".json") {
                     xray_path = Some(entry.path());
                     break;
                 }
             }
         }
-        
-        let path_to_run = xray_path.map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| "xray".to_string());
-        
-        let mut child = std::process::Command::new("sudo")
-            .arg("-S")
-            .arg(&path_to_run)
-            .arg("run")
-            .arg("-config")
-            .arg(config_path.to_string_lossy().to_string())
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to run sudo: {}", e))?;
+        let path_to_run = xray_path
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| "xray".to_string());
 
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(format!("{}\n", password).as_bytes());
+        let already_root = is_elevated::is_elevated();
+        let mut child = if already_root {
+            std::process::Command::new(&path_to_run)
+                .arg("run")
+                .arg("-config")
+                .arg(config_path.to_string_lossy().to_string())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("Failed to run xray: {}", e))?
+        } else {
+            let mut child = std::process::Command::new("sudo")
+                .arg("-S")
+                .arg("--")
+                .arg(&path_to_run)
+                .arg("run")
+                .arg("-config")
+                .arg(config_path.to_string_lossy().to_string())
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("Failed to run sudo: {}", e))?;
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(format!("{}\n", password).as_bytes());
+            }
+            child
+        };
+
+        let pid = child.id();
+        crate::track_pid(pid);
+        if let Ok(mut guard) = LINUX_SUDO_PID.lock() {
+            *guard = Some(pid);
         }
 
         if let Some(stdout) = child.stdout.take() {
             std::thread::spawn(move || {
-                use std::io::Read;
-                let mut reader = std::io::BufReader::new(stdout);
-                let mut buf = String::new();
-                while reader.read_to_string(&mut buf).is_ok() && !buf.is_empty() {
-                    println!("[XRAY SUDO STDOUT] {}", buf);
-                    buf.clear();
+                use std::io::{BufRead, BufReader};
+                let reader = BufReader::new(stdout);
+                for line in reader.lines().flatten() {
+                    println!("[XRAY SUDO STDOUT] {}", line);
                 }
             });
         }
-        
         if let Some(stderr) = child.stderr.take() {
             std::thread::spawn(move || {
-                use std::io::Read;
-                let mut reader = std::io::BufReader::new(stderr);
-                let mut buf = String::new();
-                while reader.read_to_string(&mut buf).is_ok() && !buf.is_empty() {
-                    eprintln!("[XRAY SUDO STDERR] {}", buf);
-                    buf.clear();
+                use std::io::{BufRead, BufReader};
+                let reader = BufReader::new(stderr);
+                for line in reader.lines().flatten() {
+                    eprintln!("[XRAY SUDO STDERR] {}", line);
                 }
             });
         }
 
-        // We can't wrap std::process::Child in tauri_plugin_shell::process::CommandChild easily.
-        // But we don't strictly need to track it if it's sudo? Wait, stop_proxy uses `child.kill()`.
-        // For sudo, killing the child (which is the sudo process) might not kill the xray process.
-        // Actually, killing `sudo` usually sends sigterm to its child.
-        // For simplicity, we just won't track it in ACTIVE_XRAY. Wait, then stop_proxy won't work!
-        // The user asked "اگر ادمین بود هم که xray فعلی رو ببند مجدد روی کانفیگ انتخاب شده xray با دسترسی ادمین و tun مود باز کن."
-        // We can execute a `sudo killall xray` in stop_proxy if we are on linux and tun is enabled?
-        // Let's just track the PID of `sudo` and run `sudo kill <pid>` later, or just `sudo killall xray`.
+        if let Ok(mut guard) = LINUX_SUDO_CHILD.lock() {
+            *guard = Some(child);
+        }
+        true
     } else {
+        false
+    };
+    #[cfg(not(target_os = "linux"))]
+    let started_linux_sudo = false;
+    #[cfg(not(target_os = "linux"))]
+    let _ = sudo_password;
+
+    if !started_linux_sudo {
         // Find the bin directory to use as current_dir so wintun.dll is found
         use tauri::Manager;
         let resource_dir = app.path().resource_dir().unwrap_or_else(|_| std::env::current_dir().unwrap());
@@ -452,6 +671,12 @@ pub async fn stop_proxy() -> Result<(), String> {
         if let Some(child) = guard.take() {
             let _ = child.kill();
         }
+    }
+
+    // v2rayN CoreAdminManager.KillProcessAsLinuxSudo
+    #[cfg(target_os = "linux")]
+    {
+        stop_linux_sudo_xray();
     }
 
     if was_tun {
