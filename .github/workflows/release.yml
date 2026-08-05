@@ -90,10 +90,18 @@ jobs:
             fi
 
             # --- sing-box ---
+            # Windows Info-ZIP does not expand '*.exe' globs reliably; extract then locate.
             curl -fsSL -o sing-box-windows.zip \
               "https://github.com/SagerNet/sing-box/releases/download/${SINGBOX_TAG}/sing-box-${SINGBOX_VER}-windows-amd64.zip"
-            unzip -jo sing-box-windows.zip '*.exe'
-            mv sing-box.exe src-tauri/bin/sing-box-x86_64-pc-windows-msvc.exe
+            rm -rf sb_extract && mkdir sb_extract
+            unzip -o sing-box-windows.zip -d sb_extract
+            SB_EXE=$(find sb_extract -type f -name 'sing-box.exe' | head -n 1)
+            if [ -z "$SB_EXE" ]; then
+              echo "sing-box.exe not found in archive:"
+              find sb_extract -type f
+              exit 1
+            fi
+            mv "$SB_EXE" src-tauri/bin/sing-box-x86_64-pc-windows-msvc.exe
           fi
 
           echo "Sidecars ready:"

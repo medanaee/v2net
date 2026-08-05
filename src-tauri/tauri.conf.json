@@ -38,9 +38,6 @@
     "externalBin": [
       "bin/xray",
       "bin/sing-box"
-    ],
-    "resources": [
-      "bin/wintun.dll"
     ]
   }
 }
