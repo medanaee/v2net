@@ -769,12 +769,23 @@ pub fn check_elevation() -> bool {
 }
 
 #[tauri::command]
-pub fn restart_as_admin(app: AppHandle) -> Result<(), String> {
+pub async fn restart_as_admin(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        // Release local proxy port / TUN before elevated relaunch — otherwise
+        // the new instance hits "address already in use" from orphaned sidecars.
+        let _ = stop_proxy().await;
+        crate::tester::cancel_testing();
+        crate::kill_tracked_pids();
+        force_kill_image("xray.exe");
+        force_kill_image("xray-x86_64-pc-windows-msvc.exe");
+        force_kill_image("sing-box.exe");
+        force_kill_image("sing-box-x86_64-pc-windows-msvc.exe");
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         std::process::Command::new("powershell")
-            .args(&[
+            .args([
                 "-Command",
                 &format!("Start-Process '{}' -Verb RunAs", exe.display()),
             ])
@@ -785,6 +796,7 @@ pub fn restart_as_admin(app: AppHandle) -> Result<(), String> {
     }
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = app;
         Err("restart_as_admin is only supported on Windows".to_string())
     }
 }

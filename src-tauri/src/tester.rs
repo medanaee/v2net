@@ -43,6 +43,8 @@ pub struct TestResultPayload {
     pub real_delay: Option<i64>,
     pub download_speed: Option<f64>,
     pub upload_speed: Option<f64>,
+    /// ISO country of the *exit IP* seen through this config's SOCKS proxy.
+    pub country_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -301,6 +303,7 @@ fn test_target_group<'a>(
                     real_delay: None,
                     download_speed: None,
                     upload_speed: None,
+                    country_code: None,
                 };
                 let _ = app.emit("test-result", &result);
 
@@ -338,6 +341,7 @@ fn test_target_group<'a>(
                     real_delay: None,
                     download_speed: None,
                     upload_speed: None,
+                    country_code: None,
                 };
 
                 let proxy_url = format!("socks5h://127.0.0.1:{}", port);
@@ -412,6 +416,10 @@ async fn perform_latency_test(
     match client.get(test_url).send().await {
         Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 204 => {
             let delay = start.elapsed().as_millis() as i64;
+            // Exit country through the same SOCKS client (real egress, not server address).
+            let country_code = crate::geoip::lookup_exit_country(client)
+                .await
+                .map(|c| c.code);
             TestResultPayload {
                 id: target.id.clone(),
                 test_type: "realDelay".to_string(),
@@ -419,6 +427,7 @@ async fn perform_latency_test(
                 real_delay: Some(delay),
                 download_speed: None,
                 upload_speed: None,
+                country_code,
             }
         }
         _ => TestResultPayload {
@@ -428,6 +437,7 @@ async fn perform_latency_test(
             real_delay: None,
             download_speed: None,
             upload_speed: None,
+            country_code: None,
         },
     }
 }
@@ -476,6 +486,7 @@ async fn perform_speed_test(
                         real_delay: None,
                         download_speed: Some(final_dl),
                         upload_speed: Some(final_dl * 0.4),
+                        country_code: None,
                     };
                     let _ = app_handle.emit("test-result", &partial);
                     last_emit = Instant::now();
@@ -502,6 +513,7 @@ async fn perform_speed_test(
         real_delay: None,
         download_speed: Some(final_dl),
         upload_speed: Some(final_dl * 0.4),
+        country_code: None,
     }
 }
 
@@ -526,6 +538,7 @@ async fn perform_hybrid_test(
         real_delay: latency_res.real_delay,
         download_speed: None,
         upload_speed: None,
+        country_code: latency_res.country_code,
     };
     let _ = app_handle.emit("test-result", &current_res);
 

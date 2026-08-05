@@ -1,4 +1,5 @@
 mod connection;
+mod geoip;
 mod singbox_config;
 mod tester;
 pub mod xray_config;
@@ -77,6 +78,7 @@ fn apply_window_vibrancy(window: WebviewWindow, enabled: bool) -> Result<(), Str
 }
 
 use connection::{set_system_proxy_mode, start_proxy, stop_proxy, get_proxy_stats, check_elevation, restart_as_admin};
+use geoip::lookup_country;
 use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
 
 use std::sync::Mutex;
@@ -120,7 +122,8 @@ pub fn run() {
             set_system_proxy_mode,
             get_proxy_stats,
             check_elevation,
-            restart_as_admin
+            restart_as_admin,
+            lookup_country
         ])
         .setup(|app| {
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]

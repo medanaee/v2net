@@ -21,23 +21,49 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
   const hasStarted = React.useRef(false);
 
   React.useEffect(() => {
-    // One-shot auto-connect on mount only — do NOT re-run when activeConfigId changes
-    // (right-click switch must not fight a second start_proxy with tunMode=false).
-    if (hasStarted.current) return;
-    hasStarted.current = true;
-    const state = useConfigStore.getState();
-    const activeConfig = state.configs.find((c) => c.id === state.settings.activeConfigId);
-    if (!activeConfig) return;
-    const t = window.setTimeout(() => {
-      startProxyWithConfig(
-        activeConfig,
-        state.settings.localPort || 10900,
-        state.settings.systemProxyMode || 'dont_change',
-        false // TUN always starts off after launch
-      ).catch(console.error);
-    }, 500);
-    return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Wait for zustand/idb hydration — otherwise activeConfigId/configs are still empty
+    // and auto-connect silently no-ops (user must right-click again).
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const tryAutoConnect = () => {
+      if (cancelled || hasStarted.current) return;
+      const state = useConfigStore.getState();
+      const activeId = state.settings.activeConfigId;
+      if (!activeId) {
+        // Hydrated with no selection — don't keep waiting
+        if (useConfigStore.persist.hasHydrated()) {
+          hasStarted.current = true;
+        }
+        return;
+      }
+      const activeConfig = state.configs.find((c) => c.id === activeId);
+      if (!activeConfig) return; // not hydrated yet
+
+      hasStarted.current = true;
+      timer = window.setTimeout(() => {
+        if (cancelled) return;
+        startProxyWithConfig(
+          activeConfig,
+          state.settings.localPort || 10900,
+          state.settings.systemProxyMode || 'dont_change',
+          false // TUN always starts off after launch
+        ).catch(console.error);
+      }, 300);
+    };
+
+    const unsub = useConfigStore.persist.onFinishHydration(() => {
+      tryAutoConnect();
+    });
+    if (useConfigStore.persist.hasHydrated()) {
+      tryAutoConnect();
+    }
+
+    return () => {
+      cancelled = true;
+      unsub();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, []);
 
   const handleTunChange = async (checked: boolean) => {

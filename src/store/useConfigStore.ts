@@ -57,6 +57,7 @@ interface ConfigState {
       status?: ConfigStatus | null;
       downloadSpeed?: number | null;
       uploadSpeed?: number | null;
+      countryCode?: string | null;
     }
   ) => void;
   bulkUpdateTestResults: (
@@ -65,8 +66,10 @@ interface ConfigState {
       status?: ConfigStatus | null;
       downloadSpeed?: number | null;
       uploadSpeed?: number | null;
+      countryCode?: string | null;
     }>
   ) => void;
+  setConfigsCountry: (ids: string[], countryCode: string) => void;
   updateConfigTraffic: (id: string, txDiff: number, rxDiff: number) => void;
 
   // Settings & Navigation
@@ -238,6 +241,7 @@ export const useConfigStore = create<ConfigState>()(
               status: 'untested' as ConfigStatus,
               testStage: 0,
               realDelay: null,
+              countryCode: null,
               downloadSpeed: null,
               uploadSpeed: null,
             };
@@ -341,6 +345,10 @@ export const useConfigStore = create<ConfigState>()(
               result.downloadSpeed !== undefined ? result.downloadSpeed : c.downloadSpeed,
             uploadSpeed:
               result.uploadSpeed !== undefined ? result.uploadSpeed : c.uploadSpeed,
+            countryCode:
+              result.countryCode !== undefined && result.countryCode
+                ? result.countryCode.toUpperCase()
+                : c.countryCode,
           };
         }
         return c;
@@ -381,10 +389,25 @@ export const useConfigStore = create<ConfigState>()(
               result.downloadSpeed !== undefined ? result.downloadSpeed : c.downloadSpeed,
             uploadSpeed:
               result.uploadSpeed !== undefined ? result.uploadSpeed : c.uploadSpeed,
+            countryCode:
+              result.countryCode !== undefined && result.countryCode
+                ? result.countryCode.toUpperCase()
+                : c.countryCode,
           };
         }
         return c;
       }),
+    }));
+  },
+
+  setConfigsCountry: (ids, countryCode) => {
+    if (ids.length === 0 || !countryCode) return;
+    const code = countryCode.toUpperCase();
+    const idSet = new Set(ids);
+    set((state) => ({
+      configs: state.configs.map((c) =>
+        idSet.has(c.id) ? { ...c, countryCode: code } : c
+      ),
     }));
   },
 

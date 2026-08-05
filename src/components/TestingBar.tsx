@@ -72,8 +72,9 @@ export const TestingBar: React.FC = () => {
 
     const flushInterval = setInterval(() => {
       if (Object.keys(resultBuffer.current).length > 0) {
-        useConfigStore.getState().bulkUpdateTestResults(resultBuffer.current);
+        const batch = resultBuffer.current;
         resultBuffer.current = {};
+        useConfigStore.getState().bulkUpdateTestResults(batch);
       }
       
       if (progressBuffer.current) {
@@ -114,6 +115,7 @@ export const TestingBar: React.FC = () => {
             realDelay: payload.test_type === 'speed' ? undefined : payload.real_delay,
             downloadSpeed: payload.download_speed,
             uploadSpeed: payload.upload_speed,
+            countryCode: payload.country_code || undefined,
           };
         }
       });

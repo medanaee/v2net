@@ -31,6 +31,8 @@ export interface ConfigItem {
   status: ConfigStatus;
   testStage?: number; // current passed stages in multi-stage
   realDelay?: number | null; // ms (-1 or null if failed)
+  /** ISO 3166-1 alpha-2 of exit IP seen through the config during real-delay */
+  countryCode?: string | null;
   downloadSpeed?: number | null; // Bytes/sec or MB/s
   uploadSpeed?: number | null; // Bytes/sec or MB/s
   

@@ -7,6 +7,8 @@ import { useConfigStore } from '../store/useConfigStore';
 import { ConfigItem } from '../types/config';
 import { Checkbox } from './ui/checkbox';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { CountryFlag } from './CountryFlag';
+import { countryDisplayName } from '../lib/country';
 
 interface ConfigTableProps {
   searchQuery: string;
@@ -29,10 +31,11 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
 
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const [sortColumn, setSortColumn] = useState<'ping' | 'download' | 'upload' | null>(null);
+  type SortColumn = 'ping' | 'country' | 'download' | 'upload';
+  const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  const handleSort = (column: 'ping' | 'download' | 'upload') => {
+  const handleSort = (column: SortColumn) => {
     if (sortColumn === column) {
       if (sortDirection === 'asc') setSortDirection('desc');
       else setSortColumn(null);
@@ -42,28 +45,50 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     }
   };
 
-  const renderSortIcon = (column: 'ping' | 'download' | 'upload') => {
+  const renderSortIcon = (column: SortColumn) => {
     if (sortColumn !== column) return null;
     return sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 mx-1 inline-block" /> : <ArrowDown className="w-3 h-3 mx-1 inline-block" />;
   };
 
   const visibleItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+    const lang = settings.language === 'fa' ? 'fa' : 'en';
     let items = configs.filter((c) => {
       if (c.groupId !== activeGroupId) return false;
       if (c.status !== activeTab) return false;
       if (!query) return true;
 
+      const countryLabel = c.countryCode
+        ? countryDisplayName(c.countryCode, lang).toLowerCase()
+        : '';
+
       return (
         c.name.toLowerCase().includes(query) ||
         c.address.toLowerCase().includes(query) ||
         c.port.toString().includes(query) ||
-        c.protocol.toLowerCase().includes(query)
+        c.protocol.toLowerCase().includes(query) ||
+        (c.countryCode || '').toLowerCase().includes(query) ||
+        countryLabel.includes(query)
       );
     });
 
     if (sortColumn) {
       items = [...items].sort((a, b) => {
+        if (sortColumn === 'country') {
+          const nameA = a.countryCode
+            ? countryDisplayName(a.countryCode, lang)
+            : '';
+          const nameB = b.countryCode
+            ? countryDisplayName(b.countryCode, lang)
+            : '';
+          // Empty countries always last
+          if (!nameA && !nameB) return 0;
+          if (!nameA) return 1;
+          if (!nameB) return -1;
+          const cmp = nameA.localeCompare(nameB, lang, { sensitivity: 'base' });
+          return sortDirection === 'asc' ? cmp : -cmp;
+        }
+
         let valA = 0, valB = 0;
         if (sortColumn === 'ping') {
           valA = a.realDelay ?? Infinity;
@@ -85,7 +110,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     }
 
     return items;
-  }, [configs, activeGroupId, activeTab, searchQuery, sortColumn, sortDirection]);
+  }, [configs, activeGroupId, activeTab, searchQuery, sortColumn, sortDirection, settings.language]);
 
   const virtualizer = useVirtualizer({
     count: visibleItems.length,
@@ -172,8 +197,24 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
         : '';
 
     return (
-      <span className={`font-semibold ${colorClass}`}>
+      <span className={`font-semibold tabular-nums ${colorClass}`}>
         {stageLabel}{item.realDelay} ms
+      </span>
+    );
+  };
+
+  const renderCountryCell = (item: ConfigItem) => {
+    if (!item.countryCode) {
+      return <span className="text-muted-foreground/70">-</span>;
+    }
+    const lang = settings.language === 'fa' ? 'fa' : 'en';
+    const region = countryDisplayName(item.countryCode, lang);
+    return (
+      <span className="inline-flex items-center gap-1.5 max-w-full">
+        <CountryFlag code={item.countryCode} title={region} />
+        <span className="text-[11px] font-medium truncate" title={region}>
+          {region}
+        </span>
       </span>
     );
   };
@@ -221,6 +262,12 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
           onClick={() => handleSort('ping')}
         >
           {t('ping')}{renderSortIcon('ping')}
+        </div>
+        <div
+          className="w-32 text-left cursor-pointer hover:text-foreground transition-colors"
+          onClick={() => handleSort('country')}
+        >
+          {t('country')}{renderSortIcon('country')}
         </div>
         <div 
           className="w-24 text-left cursor-pointer hover:text-foreground transition-colors"
@@ -322,7 +369,10 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
                   </div>
 
                   {/* Ping Delay */}
-                  <div className="w-24 text-left">{renderDelayCell(item)}</div>
+                  <div className="w-24 text-left overflow-hidden">{renderDelayCell(item)}</div>
+
+                  {/* Country (exit) */}
+                  <div className="w-32 text-left overflow-hidden">{renderCountryCell(item)}</div>
 
                   {/* Download Speed */}
                   <div className="w-24 text-left text-muted-foreground">
