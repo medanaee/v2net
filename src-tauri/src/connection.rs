@@ -16,6 +16,22 @@ static TUN_ACTIVE: Mutex<bool> = Mutex::new(false);
 /// Serialize start/stop so right-click reconnect cannot race (port-in-use / app flap).
 static PROXY_OP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// `is_elevated` crate is Windows-only; on Unix treat euid 0 as elevated/root.
+fn process_is_elevated() -> bool {
+    #[cfg(windows)]
+    {
+        is_elevated::is_elevated()
+    }
+    #[cfg(unix)]
+    {
+        unsafe { libc::geteuid() == 0 }
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        false
+    }
+}
+
 /// v2rayN CoreAdminManager: track sudo-launched sing-box PID + password for kill_as_sudo.
 #[cfg(target_os = "linux")]
 static LINUX_SUDO_PWD: Mutex<Option<String>> = Mutex::new(None);
@@ -155,7 +171,7 @@ fn linux_sudo_password() -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn run_as_root_shell(script: &str) {
-    if is_elevated::is_elevated() {
+    if process_is_elevated() {
         let _ = std::process::Command::new("bash")
             .args(["-c", script])
             .status();
@@ -405,7 +421,7 @@ async fn start_singbox_linux_sudo(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| "sing-box".to_string());
 
-    let already_root = is_elevated::is_elevated();
+    let already_root = process_is_elevated();
     let mut child = if already_root {
         std::process::Command::new(&path_to_run)
             .arg("run")
@@ -622,7 +638,7 @@ pub async fn start_proxy(
 
     if tun_mode {
         #[cfg(target_os = "windows")]
-        if !is_elevated::is_elevated() {
+        if !process_is_elevated() {
             return Err(
                 "TUN mode requires administrator privileges (sing-box needs admin for Wintun)"
                     .into(),
@@ -765,7 +781,7 @@ pub async fn get_proxy_stats(app: AppHandle, api_port: u16) -> Result<ProxyStats
 
 #[tauri::command]
 pub fn check_elevation() -> bool {
-    is_elevated::is_elevated()
+    process_is_elevated()
 }
 
 #[tauri::command]

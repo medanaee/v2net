@@ -400,7 +400,7 @@ fn test_target_group<'a>(
             let _ = h.await;
         }
 
-        if let Some((mut child, _rx_handle)) = child_proc {
+        if let Some((child, _rx_handle)) = child_proc {
             let _ = child.kill();
         }
     })

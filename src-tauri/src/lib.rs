@@ -79,8 +79,6 @@ fn apply_window_vibrancy(window: WebviewWindow, enabled: bool) -> Result<(), Str
 
 use connection::{set_system_proxy_mode, start_proxy, stop_proxy, get_proxy_stats, check_elevation, restart_as_admin};
 use geoip::lookup_country;
-use tauri::menu::{Menu, PredefinedMenuItem, Submenu};
-
 use std::sync::Mutex;
 
 pub static SPAWNED_PIDS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
@@ -98,6 +96,10 @@ pub fn kill_tracked_pids() {
             let _ = std::process::Command::new("taskkill")
                 .args(["/F", "/PID", &pid.to_string(), "/T"])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .spawn();
+            #[cfg(unix)]
+            let _ = std::process::Command::new("kill")
+                .args(["-9", &pid.to_string()])
                 .spawn();
         }
     }
