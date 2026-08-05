@@ -45,6 +45,14 @@ export interface Group {
   id: string;
   name: string;
   createdTime: number;
+  /** Optional subscription URL. When set, group is read-only (no paste/delete). */
+  subscriptionUrl?: string;
+  /** Last successful subscription refresh (ms). */
+  lastUpdated?: number;
+}
+
+export function isSubscriptionGroup(group: Group | undefined | null): boolean {
+  return !!group?.subscriptionUrl?.trim();
 }
 
 export interface AppSettings {

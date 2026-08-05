@@ -3,6 +3,7 @@ mod geoip;
 #[cfg(target_os = "linux")]
 mod linux_sysproxy;
 mod singbox_config;
+mod subscription;
 mod tester;
 mod tray;
 pub mod xray_config;
@@ -132,7 +133,8 @@ pub fn run() {
             check_elevation,
             restart_as_admin,
             verify_sudo_password,
-            lookup_country
+            lookup_country,
+            subscription::fetch_subscription
         ])
         .setup(|app| {
             if let Err(e) = crate::tray::setup_tray(app) {

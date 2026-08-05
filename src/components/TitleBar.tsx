@@ -9,13 +9,15 @@ import {
   Settings,
   Sun,
   Moon,
-  ShieldCheck,
   ChevronDown,
   Trash2,
   Globe,
   ArrowDownToLine,
+  RefreshCw,
+  Link2,
 } from 'lucide-react';
 import { useConfigStore } from '../store/useConfigStore';
+import { isSubscriptionGroup } from '../types/config';
 import { Button } from './ui/button';
 import {
   DropdownMenu,
@@ -33,14 +35,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "./ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
+} from './ui/alert-dialog';
+import { GroupEditorDialog } from './GroupEditorDialog';
 
 export const TitleBar: React.FC = () => {
   const { t } = useTranslation();
@@ -50,6 +46,7 @@ export const TitleBar: React.FC = () => {
     setActiveGroupId,
     addGroup,
     deleteGroup,
+    refreshSubscription,
     toggleTheme,
     settings,
     setIsSettingsOpen,
@@ -58,7 +55,13 @@ export const TitleBar: React.FC = () => {
   } = useConfigStore();
 
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
 
   const handleMinimize = async () => {
     try {
@@ -93,22 +96,45 @@ export const TitleBar: React.FC = () => {
     }
   };
 
-  const handleCreateGroup = () => {
-    if (newGroupName.trim()) {
-      addGroup(newGroupName);
-      setNewGroupName('');
-      setIsAddGroupOpen(false);
+  const handleCreateGroup = async (data: { name: string; subscriptionUrl: string }) => {
+    const id = addGroup(data.name, data.subscriptionUrl);
+    setIsAddGroupOpen(false);
+    if (id && data.subscriptionUrl.trim()) {
+      setRefreshing(true);
+      try {
+        const count = await refreshSubscription(id);
+        showToast(`${count} ${t('subscriptionRefreshed')}`);
+      } catch (e) {
+        console.error(e);
+        showToast(t('subscriptionRefreshFailed'));
+      } finally {
+        setRefreshing(false);
+      }
     }
   };
 
   const activeGroup = groups.find((g) => g.id === activeGroupId) || groups[0];
+  const activeIsSub = isSubscriptionGroup(activeGroup);
+
+  const handleRefreshActive = async () => {
+    if (!activeIsSub || refreshing) return;
+    setRefreshing(true);
+    try {
+      const count = await refreshSubscription(activeGroupId);
+      showToast(`${count} ${t('subscriptionRefreshed')}`);
+    } catch (e) {
+      console.error(e);
+      showToast(t('subscriptionRefreshFailed'));
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <div
       data-tauri-drag-region
       className="h-10 border-b flex items-center justify-between px-3 select-none text-xs font-medium bg-transparent border-border/50 z-50 shrink-0"
     >
-      {/* Brand & Group Selector */}
       <div className="flex items-center gap-3" data-tauri-drag-region>
         <div className="flex items-center gap-1.5 text-blue-500 font-bold text-sm pointer-events-none">
           <img src="/icon.png" alt="v2net" className="w-5 h-5 object-contain pointer-events-none" />
@@ -117,30 +143,45 @@ export const TitleBar: React.FC = () => {
 
         <div className="h-4 w-[1px] bg-border" />
 
-        {/* Group Selector Dropdown using Shadcn UI */}
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground/70 text-[11px]">{t('group')}:</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 gap-1 font-medium">
-                <span>{activeGroup?.name}</span>
-                <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+              <Button variant="outline" size="sm" className="h-7 gap-1 font-medium max-w-[180px]">
+                {activeIsSub && <Link2 className="w-3 h-3 text-sky-500 shrink-0" />}
+                <span className="truncate">{activeGroup?.name}</span>
+                <ChevronDown className="w-3.5 h-3.5 opacity-60 shrink-0" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent align="start" className="min-w-[160px]">
               {groups.map((g) => (
                 <DropdownMenuItem
                   key={g.id}
                   onClick={() => setActiveGroupId(g.id)}
                   className={g.id === activeGroupId ? 'font-bold text-blue-500' : ''}
                 >
-                  {g.name}
+                  <span className="flex items-center gap-1.5 truncate">
+                    {isSubscriptionGroup(g) && <Link2 className="w-3 h-3 text-sky-500 shrink-0" />}
+                    <span className="truncate">{g.name}</span>
+                  </span>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Add Group Button */}
+          {activeIsSub && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-sky-500 hover:bg-sky-500/10"
+              title={t('refreshSubscription')}
+              disabled={refreshing}
+              onClick={handleRefreshActive}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            </Button>
+          )}
+
           <Button
             variant="secondary"
             size="sm"
@@ -152,7 +193,6 @@ export const TitleBar: React.FC = () => {
             <span>{t('newGroup')}</span>
           </Button>
 
-          {/* Delete Active Group Button if >1 groups */}
           {groups.length > 1 && activeGroupId !== 'default_group' && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -168,13 +208,14 @@ export const TitleBar: React.FC = () => {
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>{t('deleteGroup')}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t('confirmDeleteGroup')}
-                  </AlertDialogDescription>
+                  <AlertDialogDescription>{t('confirmDeleteGroup')}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => deleteGroup(activeGroupId)} className="bg-red-600 text-white hover:bg-red-700">
+                  <AlertDialogAction
+                    onClick={() => deleteGroup(activeGroupId)}
+                    className="bg-red-600 text-white hover:bg-red-700"
+                  >
                     {t('delete')}
                   </AlertDialogAction>
                 </AlertDialogFooter>
@@ -184,9 +225,7 @@ export const TitleBar: React.FC = () => {
         </div>
       </div>
 
-      {/* Action Controls & Window Buttons */}
       <div className="flex items-center gap-1.5" data-tauri-drag-region={false}>
-        {/* Language Switcher Dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="h-7 gap-1 px-2">
@@ -195,16 +234,11 @@ export const TitleBar: React.FC = () => {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setLanguage('fa')}>
-              فارسی (Persian)
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setLanguage('en')}>
-              English
-            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setLanguage('fa')}>فارسی (Persian)</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setLanguage('en')}>English</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Theme Toggle */}
         <Button
           variant="ghost"
           size="icon"
@@ -219,7 +253,6 @@ export const TitleBar: React.FC = () => {
           )}
         </Button>
 
-        {/* Settings Toggle Button */}
         <Button
           variant={isSettingsOpen ? 'default' : 'secondary'}
           size="sm"
@@ -232,7 +265,6 @@ export const TitleBar: React.FC = () => {
 
         <div className="h-4 w-[1px] bg-border mx-1" />
 
-        {/* Custom Window Control Buttons */}
         <button
           onClick={handleMinimize}
           className="h-7 w-8 flex items-center justify-center hover:bg-muted text-muted-foreground"
@@ -263,48 +295,18 @@ export const TitleBar: React.FC = () => {
         </button>
       </div>
 
-      <Dialog
+      <GroupEditorDialog
         open={isAddGroupOpen}
-        onOpenChange={(open) => {
-          setIsAddGroupOpen(open);
-          if (!open) setNewGroupName('');
-        }}
-      >
-        <DialogContent className="max-w-xs" showCloseButton>
-          <DialogHeader>
-            <DialogTitle>{t('createGroupTitle')}</DialogTitle>
-          </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleCreateGroup();
-            }}
-            className="space-y-3"
-          >
-            <input
-              type="text"
-              placeholder={t('groupNamePlaceholder')}
-              value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
-              className="bg-card border border-border text-foreground rounded-md px-2.5 py-1.5 outline-none focus:border-primary transition-colors w-full text-xs"
-              autoFocus
-            />
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setIsAddGroupOpen(false)}
-              >
-                {t('cancel')}
-              </Button>
-              <Button type="submit" size="sm" disabled={!newGroupName.trim()}>
-                {t('add')}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+        mode="create"
+        onOpenChange={setIsAddGroupOpen}
+        onSubmit={handleCreateGroup}
+      />
+
+      {toast && (
+        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-3 py-1.5 rounded shadow-lg border border-slate-700 z-50">
+          {toast}
+        </div>
+      )}
     </div>
   );
 };

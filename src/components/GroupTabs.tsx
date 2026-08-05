@@ -30,6 +30,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
     addConfigsFromText,
     deleteSelectedConfigs,
     resetSelectedResults,
+    isGroupSubscription,
   } = useConfigStore();
 
   const [notification, setNotification] = useState<string | null>(null);
@@ -40,12 +41,17 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
   };
 
   const groupConfigs = configs.filter((c) => c.groupId === activeGroupId);
+  const isSubscription = isGroupSubscription(activeGroupId);
 
   const untestedCount = groupConfigs.filter((c) => c.status === 'untested').length;
   const disconnectedCount = groupConfigs.filter((c) => c.status === 'disconnected').length;
   const workingCount = groupConfigs.filter((c) => c.status === 'working').length;
 
   const handlePaste = async () => {
+    if (isSubscription) {
+      showToast(t('subscriptionLocked'));
+      return;
+    }
     try {
       const text = await readText();
       if (text) {
@@ -135,10 +141,12 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
 
         <div className="h-4 w-[1px] bg-border" />
 
-        <Button variant="secondary" size="sm" onClick={handlePaste} className="h-7 gap-1">
-          <ClipboardPaste className="w-3.5 h-3.5 text-blue-400" />
-          <span>{t('paste')}</span>
-        </Button>
+        {!isSubscription && (
+          <Button variant="secondary" size="sm" onClick={handlePaste} className="h-7 gap-1">
+            <ClipboardPaste className="w-3.5 h-3.5 text-blue-400" />
+            <span>{t('paste')}</span>
+          </Button>
+        )}
 
         <Button
           variant="secondary"
@@ -167,16 +175,18 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
           <span>{t('resetResults')}</span>
         </Button>
 
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={deleteSelectedConfigs}
-          disabled={selectedConfigIds.length === 0}
-          className="h-7 gap-1"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-          <span>{t('delete')}</span>
-        </Button>
+        {!isSubscription && (
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={deleteSelectedConfigs}
+            disabled={selectedConfigIds.length === 0}
+            className="h-7 gap-1"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>{t('delete')}</span>
+          </Button>
+        )}
       </div>
 
       {notification && (

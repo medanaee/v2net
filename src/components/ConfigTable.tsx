@@ -27,7 +27,10 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     addConfigsFromText,
     settings,
     updateSettings,
+    isGroupSubscription,
   } = useConfigStore();
+
+  const isSubscription = isGroupSubscription(activeGroupId);
 
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -294,7 +297,9 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
         {visibleItems.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-xs text-muted-foreground/70 p-6 space-y-2">
             <p>{t('noConfigsInTab')}</p>
-            <p className="text-[11px]">{t('pasteInstruction')}</p>
+            <p className="text-[11px]">
+              {isSubscription ? t('subscriptionEmptyHint') : t('pasteInstruction')}
+            </p>
           </div>
         ) : (
           <div

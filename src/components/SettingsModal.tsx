@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { ArrowRight, ArrowLeft, Sliders, Activity, Sun, Moon, Sparkles, Plus, Trash2, Globe, FolderPlus, Edit2, Save, X } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Sliders, Activity, Sun, Moon, Sparkles, Plus, Trash2, Globe, FolderPlus, Edit2, Link2, RefreshCw } from 'lucide-react';
 import { useConfigStore } from '../store/useConfigStore';
+import { isSubscriptionGroup, type Group } from '../types/config';
 import { Button } from './ui/button';
 import { Switch } from './ui/switch';
 import {
@@ -25,6 +26,7 @@ import {
 import { Checkbox } from './ui/checkbox';
 import { NumberInput } from './ui/number-input';
 import { SimpleNumberInput } from './ui/simple-number-input';
+import { GroupEditorDialog } from './GroupEditorDialog';
 
 
 const SettingCard: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
@@ -44,17 +46,37 @@ export const SettingsModal: React.FC = () => {
     toggleAcrylicBlur,
     setLanguage,
     groups,
+    configs,
     addGroup,
-    renameGroup,
+    updateGroup,
     deleteGroup,
+    refreshSubscription,
   } = useConfigStore();
 
   const [activeTab, setActiveTab] = useState<'general' | 'groups' | 'testing' | 'connection'>('general');
   const [newUrlInput, setNewUrlInput] = useState('');
-  
-  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
-  const [editingGroupName, setEditingGroupName] = useState('');
-  const [newGroupInput, setNewGroupInput] = useState('');
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<Group | null>(null);
+  const [refreshingGroupId, setRefreshingGroupId] = useState<string | null>(null);
+  const [groupToast, setGroupToast] = useState<string | null>(null);
+
+  const showGroupToast = (msg: string) => {
+    setGroupToast(msg);
+    setTimeout(() => setGroupToast(null), 2500);
+  };
+
+  const handleRefreshGroup = async (groupId: string) => {
+    setRefreshingGroupId(groupId);
+    try {
+      const count = await refreshSubscription(groupId);
+      showGroupToast(`${count} ${t('subscriptionRefreshed')}`);
+    } catch (e) {
+      console.error(e);
+      showGroupToast(t('subscriptionRefreshFailed'));
+    } finally {
+      setRefreshingGroupId(null);
+    }
+  };
 
   if (!isSettingsOpen) return null;
 
@@ -272,130 +294,179 @@ export const SettingsModal: React.FC = () => {
           )}
 
           {activeTab === 'groups' && (
-            <div className="space-y-4 w-full max-w-xl">
-              <div className="border-b pb-3 w-full text-start">
-                <h3 className="text-sm font-bold">{t('groupsManagement')}</h3>
+            <div className="space-y-4 w-full max-w-2xl">
+              <div className="flex items-start justify-between gap-3 border-b pb-3 w-full">
+                <div className="text-start space-y-1">
+                  <h3 className="text-sm font-bold">{t('groupsManagement')}</h3>
+                  <p className="text-[11px] text-muted-foreground/70">{t('groupsManagementDesc')}</p>
+                </div>
+                <Button
+                  size="sm"
+                  className="h-8 gap-1.5 shrink-0"
+                  onClick={() => setIsCreateGroupOpen(true)}
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                  {t('newGroup')}
+                </Button>
               </div>
 
-              {/* Add New Group */}
-              <SettingCard className="space-y-3">
-                <span className="font-semibold text-xs">{t('createGroupTitle')}</span>
-                <form 
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (newGroupInput.trim()) {
-                      addGroup(newGroupInput);
-                      setNewGroupInput('');
-                    }
-                  }} 
-                  className="flex gap-2 pt-2"
-                >
-                  <input
-                    type="text"
-                    placeholder={t('groupNamePlaceholder')}
-                    value={newGroupInput}
-                    onChange={(e) => setNewGroupInput(e.target.value)}
-                    className="bg-card border border-border text-foreground rounded px-2 py-1 outline-none focus:border-primary transition-colors flex-1 text-xs ltr:text-left rtl:text-right"
-                  />
-                  <Button type="submit" size="sm" className="gap-1">
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>{t('add')}</span>
-                  </Button>
-                </form>
-              </SettingCard>
-
-              {/* Group List */}
-              <SettingCard className="space-y-3">
-                <div className="space-y-2">
-                  {groups.map((group) => (
+              <div className="space-y-2.5">
+                {groups.map((group) => {
+                  const isSub = isSubscriptionGroup(group);
+                  const count = configs.filter((c) => c.groupId === group.id).length;
+                  const refreshing = refreshingGroupId === group.id;
+                  return (
                     <div
                       key={group.id}
-                      className="flex items-center justify-between p-2 rounded bg-muted/50 border border-border/50 text-xs transition-colors"
+                      className="rounded-xl border border-border/60 bg-card/40 p-3.5 space-y-2.5"
                     >
-                      {editingGroupId === group.id ? (
-                        <div className="flex items-center gap-2 flex-1 ltr:mr-2 rtl:ml-2">
-                          <input
-                            type="text"
-                            value={editingGroupName}
-                            onChange={(e) => setEditingGroupName(e.target.value)}
-                            className="bg-card border border-border text-foreground rounded px-2 py-1 outline-none focus:border-primary flex-1 text-xs"
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                renameGroup(group.id, editingGroupName);
-                                setEditingGroupId(null);
-                              } else if (e.key === 'Escape') {
-                                setEditingGroupId(null);
-                              }
-                            }}
-                          />
-                          <button
-                            onClick={() => {
-                              renameGroup(group.id, editingGroupName);
-                              setEditingGroupId(null);
-                            }}
-                            className="text-emerald-500 hover:text-emerald-400 p-1"
-                            title={t('save')}
-                          >
-                            <Save className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setEditingGroupId(null)}
-                            className="text-muted-foreground hover:text-foreground p-1"
-                            title={t('cancel')}
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <span className="font-semibold font-mono text-[11px] ltr:text-left rtl:text-right">{group.name}</span>
-                          <div className="flex items-center gap-1 shrink-0">
-                            {group.id !== 'default_group' && (
-                              <button
-                                onClick={() => {
-                                  setEditingGroupId(group.id);
-                                  setEditingGroupName(group.name);
-                                }}
-                                className="text-blue-500 hover:text-blue-400 p-1"
-                                title={t('rename')}
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            {groups.length > 1 && group.id !== 'default_group' && (
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <button
-                                    className="text-red-400 hover:text-red-500 p-1"
-                                    title={t('deleteGroup')}
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>{t('deleteGroup')}</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      {t('confirmDeleteGroup')}
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
-                                    <AlertDialogAction onClick={() => deleteGroup(group.id)} className="bg-red-600 text-white hover:bg-red-700">
-                                      {t('delete')}
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 space-y-1.5 text-start">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-sm truncate">{group.name}</span>
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                isSub
+                                  ? 'bg-sky-500/15 text-sky-500'
+                                  : 'bg-muted text-muted-foreground'
+                              }`}
+                            >
+                              {isSub ? (
+                                <>
+                                  <Link2 className="w-3 h-3" />
+                                  {t('subscriptionGroup')}
+                                </>
+                              ) : (
+                                t('manualGroup')
+                              )}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <span>{t('configsCount', { count })}</span>
+                            {isSub && (
+                              <>
+                                <span className="opacity-40">·</span>
+                                <span>
+                                  {group.lastUpdated
+                                    ? `${t('lastUpdated')}: ${new Date(group.lastUpdated).toLocaleString()}`
+                                    : t('neverUpdated')}
+                                </span>
+                              </>
                             )}
                           </div>
-                        </>
-                      )}
+                          {isSub && (
+                            <p
+                              dir="ltr"
+                              className="text-[10px] font-mono text-muted-foreground/80 truncate max-w-full"
+                              title={group.subscriptionUrl}
+                            >
+                              {group.subscriptionUrl}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isSub && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-sky-500 hover:bg-sky-500/10"
+                              title={t('refreshSubscription')}
+                              disabled={refreshing}
+                              onClick={() => handleRefreshGroup(group.id)}
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-blue-500 hover:bg-blue-500/10"
+                            title={t('editGroup')}
+                            onClick={() => setEditingGroup(group)}
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </Button>
+                          {groups.length > 1 && group.id !== 'default_group' && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-red-500 hover:bg-red-500/10"
+                                  title={t('deleteGroup')}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>{t('deleteGroup')}</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    {t('confirmDeleteGroup')}
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => deleteGroup(group.id)}
+                                    className="bg-red-600 text-white hover:bg-red-700"
+                                  >
+                                    {t('delete')}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  ))}
+                  );
+                })}
+              </div>
+
+              <GroupEditorDialog
+                open={isCreateGroupOpen}
+                mode="create"
+                onOpenChange={setIsCreateGroupOpen}
+                onSubmit={async (data) => {
+                  const id = addGroup(data.name, data.subscriptionUrl);
+                  setIsCreateGroupOpen(false);
+                  if (id && data.subscriptionUrl) {
+                    await handleRefreshGroup(id);
+                  }
+                }}
+              />
+
+              <GroupEditorDialog
+                open={!!editingGroup}
+                mode="edit"
+                initialName={editingGroup?.name || ''}
+                initialSubscriptionUrl={editingGroup?.subscriptionUrl || ''}
+                onOpenChange={(open) => {
+                  if (!open) setEditingGroup(null);
+                }}
+                onSubmit={async (data) => {
+                  if (!editingGroup) return;
+                  const hadUrl = !!editingGroup.subscriptionUrl?.trim();
+                  const nextUrl = data.subscriptionUrl.trim();
+                  updateGroup(editingGroup.id, {
+                    name: data.name,
+                    subscriptionUrl: data.subscriptionUrl,
+                  });
+                  const groupId = editingGroup.id;
+                  setEditingGroup(null);
+                  if (nextUrl && (!hadUrl || nextUrl !== editingGroup.subscriptionUrl?.trim())) {
+                    await handleRefreshGroup(groupId);
+                  }
+                }}
+              />
+
+              {groupToast && (
+                <div className="fixed bottom-14 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs px-3 py-1.5 rounded shadow-lg border border-slate-700 z-50">
+                  {groupToast}
                 </div>
-              </SettingCard>
+              )}
             </div>
           )}
 

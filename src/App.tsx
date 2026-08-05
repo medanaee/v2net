@@ -95,26 +95,22 @@ export const App: React.FC = () => {
         }
 
         if (e.code === 'KeyV') {
+          // Inside inputs/textareas: never intercept — native paste avoids double-insert
+          // (our old polyfill awaited clipboard then preventDefault too late).
+          if (isInput || target.isContentEditable) {
+            return;
+          }
+
+          // Outside inputs: paste share-links as configs (must preventDefault before await).
+          const state = useConfigStore.getState();
+          if (state.isSettingsOpen || state.isGroupSubscription()) {
+            return;
+          }
+          e.preventDefault();
           try {
             const text = await readText();
-            if (!text) return;
-
-            if (isInput) {
-              e.preventDefault();
-              const inputTarget = target as HTMLInputElement;
-              const start = inputTarget.selectionStart || 0;
-              const end = inputTarget.selectionEnd || 0;
-              const val = inputTarget.value;
-              inputTarget.value = val.substring(0, start) + text + val.substring(end);
-              inputTarget.selectionStart = inputTarget.selectionEnd = start + text.length;
-              inputTarget.dispatchEvent(new Event('input', { bubbles: true }));
-              inputTarget.dispatchEvent(new Event('change', { bubbles: true }));
-            } else {
-              // Not in an input -> add configs
-              if (!useConfigStore.getState().isSettingsOpen) {
-                e.preventDefault();
-                useConfigStore.getState().addConfigsFromText(text);
-              }
+            if (text) {
+              state.addConfigsFromText(text);
             }
           } catch (err) {
             console.error('Failed to read clipboard', err);

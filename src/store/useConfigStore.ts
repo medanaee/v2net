@@ -1,8 +1,16 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
 import { get, set, del } from 'idb-keyval';
-import { ConfigItem, ConfigStatus, Group, AppSettings } from '../types/config';
+import { invoke } from '@tauri-apps/api/core';
+import {
+  ConfigItem,
+  ConfigStatus,
+  Group,
+  AppSettings,
+  isSubscriptionGroup,
+} from '../types/config';
 import { parseBatchConfigs } from '../lib/parsers';
+import { decodeSubscriptionBody } from '../lib/subscription';
 import i18n from '../lib/i18n';
 
 const DEFAULT_TEST_URLS = [
@@ -16,10 +24,13 @@ interface ConfigState {
   // Groups
   groups: Group[];
   activeGroupId: string;
-  addGroup: (name: string) => void;
+  addGroup: (name: string, subscriptionUrl?: string) => string | null;
+  updateGroup: (id: string, patch: { name?: string; subscriptionUrl?: string }) => void;
   renameGroup: (id: string, newName: string) => void;
   deleteGroup: (id: string) => void;
   setActiveGroupId: (id: string) => void;
+  refreshSubscription: (groupId: string) => Promise<number>;
+  isGroupSubscription: (groupId?: string) => boolean;
 
   // Configs
   configs: ConfigItem[];
@@ -123,33 +134,55 @@ const DEFAULT_GROUP: Group = {
   createdTime: Date.now(),
 };
 
+function normalizeSubscriptionUrl(url?: string): string | undefined {
+  const trimmed = url?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 export const useConfigStore = create<ConfigState>()(
   persist(
     (set, get) => ({
   groups: [DEFAULT_GROUP],
   activeGroupId: 'default_group',
 
-  addGroup: (name: string) => {
+  addGroup: (name: string, subscriptionUrl?: string) => {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed) return null;
     const newGroup: Group = {
       id: `group_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       name: trimmed,
       createdTime: Date.now(),
+      subscriptionUrl: normalizeSubscriptionUrl(subscriptionUrl),
     };
     set((state) => ({
       groups: [...state.groups, newGroup],
       activeGroupId: newGroup.id,
     }));
+    return newGroup.id;
+  },
+
+  updateGroup: (id, patch) => {
+    set((state) => ({
+      groups: state.groups.map((g) => {
+        if (g.id !== id) return g;
+        const next: Group = { ...g };
+        if (patch.name !== undefined) {
+          const trimmed = patch.name.trim();
+          if (trimmed) next.name = trimmed;
+        }
+        if (patch.subscriptionUrl !== undefined) {
+          next.subscriptionUrl = normalizeSubscriptionUrl(patch.subscriptionUrl);
+          if (!next.subscriptionUrl) {
+            delete next.lastUpdated;
+          }
+        }
+        return next;
+      }),
+    }));
   },
 
   renameGroup: (id: string, newName: string) => {
-    if (id === 'default_group') return;
-    const trimmed = newName.trim();
-    if (!trimmed) return;
-    set((state) => ({
-      groups: state.groups.map(g => g.id === id ? { ...g, name: trimmed } : g),
-    }));
+    get().updateGroup(id, { name: newName });
   },
 
   deleteGroup: (id: string) => {
@@ -172,6 +205,40 @@ export const useConfigStore = create<ConfigState>()(
     set({ activeGroupId: id, selectedConfigIds: [], lastSelectedId: null });
   },
 
+  isGroupSubscription: (groupId?: string) => {
+    const id = groupId || get().activeGroupId;
+    const group = get().groups.find((g) => g.id === id);
+    return isSubscriptionGroup(group);
+  },
+
+  refreshSubscription: async (groupId: string) => {
+    const group = get().groups.find((g) => g.id === groupId);
+    const url = group?.subscriptionUrl?.trim();
+    if (!url) {
+      throw new Error('Group has no subscription URL');
+    }
+
+    const body = await invoke<string>('fetch_subscription', { url });
+    const text = decodeSubscriptionBody(body);
+    const parsed = parseBatchConfigs(text, groupId);
+    if (parsed.length === 0) {
+      throw new Error('No valid configs found in subscription');
+    }
+
+    set((state) => ({
+      configs: [
+        ...state.configs.filter((c) => c.groupId !== groupId),
+        ...parsed,
+      ],
+      groups: state.groups.map((g) =>
+        g.id === groupId ? { ...g, lastUpdated: Date.now() } : g
+      ),
+      selectedConfigIds: [],
+      lastSelectedId: null,
+    }));
+    return parsed.length;
+  },
+
   configs: [],
   activeTab: 'untested',
   setActiveTab: (tab: ConfigStatus) => {
@@ -183,6 +250,9 @@ export const useConfigStore = create<ConfigState>()(
 
   addConfigsFromText: (rawText: string, targetGroupId?: string) => {
     const groupId = targetGroupId || get().activeGroupId;
+    if (get().isGroupSubscription(groupId)) {
+      return 0;
+    }
     const parsed = parseBatchConfigs(rawText, groupId);
     if (parsed.length === 0) return 0;
 
@@ -193,11 +263,24 @@ export const useConfigStore = create<ConfigState>()(
   },
 
   deleteSelectedConfigs: () => {
-    const selectedSet = new Set(get().selectedConfigIds);
+    const state = get();
+    if (state.isGroupSubscription(state.activeGroupId)) {
+      return;
+    }
+    const selectedSet = new Set(state.selectedConfigIds);
     if (selectedSet.size === 0) return;
 
-    set((state) => ({
-      configs: state.configs.filter((c) => !selectedSet.has(c.id)),
+    // Also block deleting configs that belong to any subscription group
+    const subGroupIds = new Set(
+      state.groups.filter(isSubscriptionGroup).map((g) => g.id)
+    );
+
+    set((s) => ({
+      configs: s.configs.filter((c) => {
+        if (!selectedSet.has(c.id)) return true;
+        if (subGroupIds.has(c.groupId)) return true; // keep
+        return false;
+      }),
       selectedConfigIds: [],
       lastSelectedId: null,
     }));
@@ -502,9 +585,16 @@ export const useConfigStore = create<ConfigState>()(
       name: 'v2ray-test-storage',
       storage: createJSONStorage(() => idbStorage),
       merge: (persistedState: any, currentState) => {
+        const groups = (persistedState?.groups || currentState.groups).map(
+          (g: Group) => ({
+            ...g,
+            subscriptionUrl: g.subscriptionUrl?.trim() || undefined,
+          })
+        );
         return {
           ...currentState,
           ...persistedState,
+          groups,
           // TUN must never persist across launches
           tunMode: false,
           settings: {
