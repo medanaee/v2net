@@ -149,11 +149,13 @@ export const App: React.FC = () => {
 
           {/* Bottom Testing Bar */}
           <TestingBar />
-
-          {/* Proxy Connection Bar */}
-          <ConnectionBar onRequireSudo={setSudoAction} />
         </div>
       )}
+
+      {/* Keep mounted across Settings — remount used to re-run auto-connect with TUN off */}
+      <ConnectionBar
+        onRequireSudo={(action) => setSudoAction(() => action)}
+      />
 
       <SudoPasswordModal 
         isOpen={!!sudoAction} 

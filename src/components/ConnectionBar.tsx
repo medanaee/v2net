@@ -15,39 +15,41 @@ import {
 } from './ui/dropdown-menu';
 import { Button } from './ui/button';
 
+/** Survives Settings remounts — auto-connect must run only once per app session. */
+let autoConnectDone = false;
+
 export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) => void) => void }> = ({ onRequireSudo }) => {
   const { t } = useTranslation();
   const { settings, updateSettings, configs, tunMode, setTunMode } = useConfigStore();
-  const hasStarted = React.useRef(false);
 
   React.useEffect(() => {
-    // Wait for zustand/idb hydration — otherwise activeConfigId/configs are still empty
-    // and auto-connect silently no-ops (user must right-click again).
+    if (autoConnectDone) return;
+
     let cancelled = false;
     let timer: number | undefined;
 
     const tryAutoConnect = () => {
-      if (cancelled || hasStarted.current) return;
+      if (cancelled || autoConnectDone) return;
       const state = useConfigStore.getState();
       const activeId = state.settings.activeConfigId;
       if (!activeId) {
-        // Hydrated with no selection — don't keep waiting
         if (useConfigStore.persist.hasHydrated()) {
-          hasStarted.current = true;
+          autoConnectDone = true;
         }
         return;
       }
       const activeConfig = state.configs.find((c) => c.id === activeId);
-      if (!activeConfig) return; // not hydrated yet
+      if (!activeConfig) return;
 
-      hasStarted.current = true;
+      autoConnectDone = true;
       timer = window.setTimeout(() => {
         if (cancelled) return;
+        // Respect current tunMode (normally false after launch by persist merge)
         startProxyWithConfig(
           activeConfig,
           state.settings.localPort || 10900,
           state.settings.systemProxyMode || 'dont_change',
-          false // TUN always starts off after launch
+          useConfigStore.getState().tunMode
         ).catch(console.error);
       }, 300);
     };
@@ -66,14 +68,36 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
     };
   }, []);
 
+  const reconnect = async (nextTun: boolean, sudoPassword?: string) => {
+    if (!settings.activeConfigId) return;
+    const activeConfig = configs.find((c) => c.id === settings.activeConfigId);
+    if (!activeConfig) return;
+    await startProxyWithConfig(
+      activeConfig,
+      settings.localPort || 10900,
+      settings.systemProxyMode || 'dont_change',
+      nextTun,
+      sudoPassword
+    );
+  };
+
   const handleTunChange = async (checked: boolean) => {
-    if (checked) {
+    if (!checked) {
+      setTunMode(false);
+      try {
+        await reconnect(false);
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
+
+    try {
       const osType = await getOsType();
-      
+
       if (osType === 'windows') {
         const isAdmin: boolean = await invoke('check_elevation');
         if (!isAdmin) {
-          // Restart elevated; user re-enables TUN manually after relaunch
           try {
             await invoke('restart_as_admin');
           } catch (e) {
@@ -82,58 +106,36 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
           return;
         }
         setTunMode(true);
-      } else if (osType === 'linux') {
+        await reconnect(true);
+        return;
+      }
+
+      if (osType === 'linux') {
         const isRoot: boolean = await invoke('check_elevation');
         if (!isRoot) {
-          onRequireSudo((password) => {
-            setTunMode(true);
-            if (settings.activeConfigId) {
-              const activeConfig = configs.find(c => c.id === settings.activeConfigId);
-              if (activeConfig) {
-                startProxyWithConfig(
-                  activeConfig,
-                  settings.localPort || 10900,
-                  settings.systemProxyMode || 'dont_change',
-                  true,
-                  password
-                ).catch(console.error);
-              }
+          onRequireSudo(async (password) => {
+            try {
+              await invoke('verify_sudo_password', { password });
+              setTunMode(true);
+              await reconnect(true, password);
+            } catch (e) {
+              console.error(e);
+              setTunMode(false);
+              alert(String(e));
             }
           });
           return;
         }
         setTunMode(true);
-      } else {
-        setTunMode(true);
-      }
-      
-      // if it reaches here, reconnect with new tunMode (except linux sudo which does it in callback)
-      if ((osType !== 'linux' || await invoke('check_elevation')) && settings.activeConfigId) {
-        const activeConfig = configs.find(c => c.id === settings.activeConfigId);
-        if (activeConfig) {
-          startProxyWithConfig(
-            activeConfig,
-            settings.localPort || 10900,
-            settings.systemProxyMode || 'dont_change',
-            true
-          ).catch(console.error);
-        }
+        await reconnect(true);
+        return;
       }
 
-    } else {
+      setTunMode(true);
+      await reconnect(true);
+    } catch (e) {
+      console.error(e);
       setTunMode(false);
-      // Reconnect with tunMode off
-      if (settings.activeConfigId) {
-        const activeConfig = configs.find(c => c.id === settings.activeConfigId);
-        if (activeConfig) {
-          startProxyWithConfig(
-            activeConfig,
-            settings.localPort || 10900,
-            settings.systemProxyMode || 'dont_change',
-            false
-          ).catch(console.error);
-        }
-      }
     }
   };
 
@@ -150,6 +152,7 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
     try {
       await invoke('stop_proxy');
       updateSettings({ activeConfigId: null });
+      setTunMode(false);
     } catch (e) {
       console.error(e);
     }

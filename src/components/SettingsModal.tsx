@@ -594,10 +594,26 @@ export const SettingsModal: React.FC = () => {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-32">
-                      <DropdownMenuItem onClick={() => updateSettings({ systemProxyMode: 'set' })}>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          updateSettings({ systemProxyMode: 'set' });
+                          invoke('set_system_proxy_mode', {
+                            mode: 'set',
+                            port: settings.localPort || 10900,
+                          }).catch(console.error);
+                        }}
+                      >
                         {t('setProxy')}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => updateSettings({ systemProxyMode: 'clear' })}>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          updateSettings({ systemProxyMode: 'clear' });
+                          invoke('set_system_proxy_mode', {
+                            mode: 'clear',
+                            port: settings.localPort || 10900,
+                          }).catch(console.error);
+                        }}
+                      >
                         {t('clearProxy')}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => updateSettings({ systemProxyMode: 'dont_change' })}>

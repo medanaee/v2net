@@ -248,9 +248,7 @@ fn stop_linux_sudo_singbox() {
     run_as_root_shell(
         "pkill -9 -x sing-box 2>/dev/null || true; pkill -9 -f 'sing-box.*run -c' 2>/dev/null || true",
     );
-    if let Ok(mut pwd) = LINUX_SUDO_PWD.lock() {
-        *pwd = None;
-    }
+    // Keep LINUX_SUDO_PWD for the session (v2rayN keeps LinuxSudoPwd in memory).
 }
 
 fn ensure_wintun_dll(app: &AppHandle) {
@@ -410,8 +408,17 @@ async fn start_singbox_linux_sudo(
     config_path: &std::path::Path,
     sudo_password: Option<String>,
 ) -> Result<(), String> {
-    let password = sudo_password.unwrap_or_default();
-    if !password.is_empty() {
+    let already_root = process_is_elevated();
+    let password = sudo_password
+        .filter(|p| !p.is_empty())
+        .or_else(linux_sudo_password)
+        .unwrap_or_default();
+
+    if !already_root {
+        if password.is_empty() {
+            return Err("sudo password required for TUN mode".into());
+        }
+        crate::linux_sysproxy::verify_sudo_password(&password)?;
         if let Ok(mut pwd) = LINUX_SUDO_PWD.lock() {
             *pwd = Some(password.clone());
         }
@@ -421,7 +428,6 @@ async fn start_singbox_linux_sudo(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| "sing-box".to_string());
 
-    let already_root = process_is_elevated();
     let mut child = if already_root {
         std::process::Command::new(&path_to_run)
             .arg("run")
@@ -434,6 +440,8 @@ async fn start_singbox_linux_sudo(
     } else {
         let mut child = std::process::Command::new("sudo")
             .arg("-S")
+            .arg("-p")
+            .arg("")
             .arg("--")
             .arg(&path_to_run)
             .arg("run")
@@ -449,6 +457,19 @@ async fn start_singbox_linux_sudo(
         }
         child
     };
+
+    // Give sudo/sing-box a moment; if auth failed the process exits immediately.
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            return Err(format!(
+                "sing-box/sudo exited early with status {}. Wrong password or missing CAP_NET_ADMIN?",
+                status
+            ));
+        }
+        Ok(None) => {}
+        Err(e) => return Err(format!("failed to check sing-box process: {e}")),
+    }
 
     let pid = child.id();
     crate::track_pid(pid);
@@ -606,13 +627,7 @@ async fn stop_proxy_inner(clear_system_proxy: bool) -> Result<(), String> {
     }
 
     if clear_system_proxy {
-        let sysproxy = Sysproxy {
-            enable: false,
-            host: "127.0.0.1".to_string(),
-            port: 10808,
-            bypass: "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*".to_string(),
-        };
-        let _ = sysproxy.set_system_proxy();
+        let _ = update_system_proxy("clear".into(), 10808);
     }
     Ok(())
 }
@@ -698,22 +713,57 @@ pub async fn set_system_proxy_mode(mode: String, port: u16) -> Result<(), String
 }
 
 fn update_system_proxy(mode: String, port: u16) -> Result<(), String> {
-    let mut sysproxy = Sysproxy {
-        enable: false,
-        host: "127.0.0.1".to_string(),
-        port,
-        bypass: "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*".to_string(),
-    };
-
-    if mode == "set" {
-        sysproxy.enable = true;
-        sysproxy.set_system_proxy().map_err(|e| e.to_string())?;
-    } else if mode == "clear" {
-        sysproxy.enable = false;
-        sysproxy.set_system_proxy().map_err(|e| e.to_string())?;
+    if mode == "dont_change" {
+        return Ok(());
     }
 
-    Ok(())
+    #[cfg(target_os = "linux")]
+    {
+        // v2rayN-style: GNOME gsettings + KDE kwriteconfig (sysproxy crate is GNOME-only
+        // and quotes mode incorrectly on some distros).
+        match mode.as_str() {
+            "set" => crate::linux_sysproxy::set_proxy("127.0.0.1", port)?,
+            "clear" => crate::linux_sysproxy::unset_proxy()?,
+            _ => {}
+        }
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let mut sysproxy = Sysproxy {
+            enable: false,
+            host: "127.0.0.1".to_string(),
+            port,
+            bypass: "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*;192.168.*".to_string(),
+        };
+
+        if mode == "set" {
+            sysproxy.enable = true;
+            sysproxy.set_system_proxy().map_err(|e| e.to_string())?;
+        } else if mode == "clear" {
+            sysproxy.enable = false;
+            sysproxy.set_system_proxy().map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn verify_sudo_password(password: String) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        crate::linux_sysproxy::verify_sudo_password(&password)?;
+        if let Ok(mut pwd) = LINUX_SUDO_PWD.lock() {
+            *pwd = Some(password);
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = password;
+        Err("sudo password is only used on Linux".into())
+    }
 }
 
 #[derive(Serialize, Deserialize, Default)]

@@ -1,7 +1,10 @@
 mod connection;
 mod geoip;
+#[cfg(target_os = "linux")]
+mod linux_sysproxy;
 mod singbox_config;
 mod tester;
+mod tray;
 pub mod xray_config;
 
 #[cfg(target_os = "windows")]
@@ -77,7 +80,10 @@ fn apply_window_vibrancy(window: WebviewWindow, enabled: bool) -> Result<(), Str
     Ok(())
 }
 
-use connection::{set_system_proxy_mode, start_proxy, stop_proxy, get_proxy_stats, check_elevation, restart_as_admin};
+use connection::{
+    check_elevation, get_proxy_stats, restart_as_admin, set_system_proxy_mode, start_proxy,
+    stop_proxy, verify_sudo_password,
+};
 use geoip::lookup_country;
 use std::sync::Mutex;
 
@@ -125,31 +131,12 @@ pub fn run() {
             get_proxy_stats,
             check_elevation,
             restart_as_admin,
+            verify_sudo_password,
             lookup_country
         ])
         .setup(|app| {
-            #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
-            {
-                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-                if let Some(icon) = app.default_window_icon().cloned() {
-                    let _tray = TrayIconBuilder::new()
-                        .icon(icon)
-                        .on_tray_icon_event(|tray, event| match event {
-                            TrayIconEvent::Click {
-                                button: MouseButton::Left,
-                                button_state: MouseButtonState::Up,
-                                ..
-                            } => {
-                                let app = tray.app_handle();
-                                if let Some(window) = app.get_webview_window("main") {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
-                            }
-                            _ => {}
-                        })
-                        .build(app);
-                }
+            if let Err(e) = crate::tray::setup_tray(app) {
+                eprintln!("[tray] setup failed: {e}");
             }
 
             let main_window = app.get_webview_window("main");
@@ -157,27 +144,12 @@ pub fn run() {
                 #[cfg(target_os = "windows")]
                 let _ = apply_acrylic(&window, Some((18, 18, 24, 180)));
 
-                let app_handle = app.handle().clone();
                 let window_clone = window.clone();
-
                 window.on_window_event(move |event| match event {
+                    // Close button → hide to tray (Quit is in the tray menu).
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
                         let _ = window_clone.hide();
-
-                        let app_handle = app_handle.clone();
-                        tauri::async_runtime::spawn(async move {
-                            // Clear the proxy and stop the main connection
-                            let _ = crate::connection::stop_proxy().await;
-
-                            // Cancel testing
-                            crate::tester::cancel_testing();
-
-                            // Force kill ONLY the xray instances we spawned
-                            crate::kill_tracked_pids();
-
-                            app_handle.exit(0);
-                        });
                     }
                     _ => {}
                 });
