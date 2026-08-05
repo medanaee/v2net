@@ -34,6 +34,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "./ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
 
 export const TitleBar: React.FC = () => {
   const { t } = useTranslation();
@@ -86,8 +93,7 @@ export const TitleBar: React.FC = () => {
     }
   };
 
-  const handleCreateGroup = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateGroup = () => {
     if (newGroupName.trim()) {
       addGroup(newGroupName);
       setNewGroupName('');
@@ -257,32 +263,33 @@ export const TitleBar: React.FC = () => {
         </button>
       </div>
 
-      {/* Add Group Modal */}
-      {isAddGroupOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <Dialog
+        open={isAddGroupOpen}
+        onOpenChange={(open) => {
+          setIsAddGroupOpen(open);
+          if (!open) setNewGroupName('');
+        }}
+      >
+        <DialogContent className="max-w-xs" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>{t('createGroupTitle')}</DialogTitle>
+          </DialogHeader>
           <form
-            onSubmit={handleCreateGroup}
-            className="bg-card border border-border rounded p-4 w-80 space-y-3 shadow-xl"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCreateGroup();
+            }}
+            className="space-y-3"
           >
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="font-semibold text-sm">{t('createGroupTitle')}</h3>
-              <button
-                type="button"
-                onClick={() => setIsAddGroupOpen(false)}
-                className="text-muted-foreground/70 hover:text-foreground"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
             <input
               type="text"
               placeholder={t('groupNamePlaceholder')}
               value={newGroupName}
               onChange={(e) => setNewGroupName(e.target.value)}
-              className="bg-card border border-border text-foreground rounded px-2 py-1 outline-none focus:border-primary transition-colors w-full text-xs"
+              className="bg-card border border-border text-foreground rounded-md px-2.5 py-1.5 outline-none focus:border-primary transition-colors w-full text-xs"
               autoFocus
             />
-            <div className="flex justify-end gap-2 pt-1">
+            <DialogFooter>
               <Button
                 type="button"
                 variant="secondary"
@@ -291,13 +298,13 @@ export const TitleBar: React.FC = () => {
               >
                 {t('cancel')}
               </Button>
-              <Button type="submit" size="sm">
+              <Button type="submit" size="sm" disabled={!newGroupName.trim()}>
                 {t('add')}
               </Button>
-            </div>
+            </DialogFooter>
           </form>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

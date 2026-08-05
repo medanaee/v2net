@@ -144,12 +144,19 @@ pub fn run() {
                 #[cfg(target_os = "windows")]
                 let _ = apply_acrylic(&window, Some((18, 18, 24, 180)));
 
-                let window_clone = window.clone();
+                let app_handle = app.handle().clone();
                 window.on_window_event(move |event| match event {
-                    // Close button → hide to tray (Quit is in the tray menu).
+                    // Title-bar X / window close → full quit.
+                    // Hide-to-tray is a separate frontend button (window.hide).
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
-                        let _ = window_clone.hide();
+                        let app_handle = app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = crate::connection::stop_proxy().await;
+                            crate::tester::cancel_testing();
+                            crate::kill_tracked_pids();
+                            app_handle.exit(0);
+                        });
                     }
                     _ => {}
                 });

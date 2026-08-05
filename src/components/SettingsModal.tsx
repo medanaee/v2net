@@ -564,8 +564,8 @@ export const SettingsModal: React.FC = () => {
               </div>
 
               <SettingCard className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5 flex-1 text-start ltr:mr-4 rtl:ml-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-0.5 flex-1 text-start">
                     <span className="font-semibold text-xs">{t('localPort')}</span>
                     <p className="text-[11px] text-muted-foreground/70">{t('localPortDesc')}</p>
                   </div>
@@ -574,7 +574,7 @@ export const SettingsModal: React.FC = () => {
                     onChange={(val) => updateSettings({ localPort: val })}
                     min={1024}
                     max={65535}
-                    className="w-24"
+                    className="w-28"
                   />
                 </div>
               </SettingCard>
