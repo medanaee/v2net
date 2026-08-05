@@ -46,21 +46,58 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download Xray Sidecar
+      - name: Download sidecars (xray, sing-box, wintun)
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p src-tauri/bin
-          if [ "${{ matrix.platform }}" == "ubuntu-22.04" ]; then
-            curl -L -o Xray-linux-64.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
-            unzip Xray-linux-64.zip xray
+
+          # Resolve latest stable sing-box tag (skip drafts/prereleases)
+          SINGBOX_TAG=$(curl -fsSL https://api.github.com/repos/SagerNet/sing-box/releases/latest \
+            | python -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+          SINGBOX_VER="${SINGBOX_TAG#v}"
+          echo "Using sing-box ${SINGBOX_TAG}"
+
+          if [ "${{ matrix.platform }}" = "ubuntu-22.04" ]; then
+            # --- Xray ---
+            curl -fsSL -o Xray-linux-64.zip \
+              https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+            unzip -jo Xray-linux-64.zip xray
             mv xray src-tauri/bin/xray-x86_64-unknown-linux-gnu
             chmod +x src-tauri/bin/xray-x86_64-unknown-linux-gnu
-          elif [ "${{ matrix.platform }}" == "windows-latest" ]; then
-            curl -L -o Xray-windows-64.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip
-            unzip Xray-windows-64.zip xray.exe
+
+            # --- sing-box ---
+            curl -fsSL -o sing-box-linux.tar.gz \
+              "https://github.com/SagerNet/sing-box/releases/download/${SINGBOX_TAG}/sing-box-${SINGBOX_VER}-linux-amd64.tar.gz"
+            tar -xzf sing-box-linux.tar.gz
+            SB_BIN=$(find . -type f -name sing-box | head -n 1)
+            mv "$SB_BIN" src-tauri/bin/sing-box-x86_64-unknown-linux-gnu
+            chmod +x src-tauri/bin/sing-box-x86_64-unknown-linux-gnu
+
+          elif [ "${{ matrix.platform }}" = "windows-latest" ]; then
+            # --- Xray (+ wintun.dll from the same package when present) ---
+            curl -fsSL -o Xray-windows-64.zip \
+              https://github.com/XTLS/Xray-core/releases/latest/download/Xray-windows-64.zip
+            unzip -jo Xray-windows-64.zip xray.exe
             mv xray.exe src-tauri/bin/xray-x86_64-pc-windows-msvc.exe
+            if unzip -l Xray-windows-64.zip | grep -qi 'wintun.dll'; then
+              unzip -jo Xray-windows-64.zip '*wintun.dll'
+              mv wintun.dll src-tauri/bin/wintun.dll
+            else
+              curl -fsSL -o wintun.zip https://www.wintun.net/builds/wintun-0.14.1.zip
+              unzip -jo wintun.zip 'wintun/bin/amd64/wintun.dll'
+              mv wintun.dll src-tauri/bin/wintun.dll
+            fi
+
+            # --- sing-box ---
+            curl -fsSL -o sing-box-windows.zip \
+              "https://github.com/SagerNet/sing-box/releases/download/${SINGBOX_TAG}/sing-box-${SINGBOX_VER}-windows-amd64.zip"
+            unzip -jo sing-box-windows.zip '*.exe'
+            mv sing-box.exe src-tauri/bin/sing-box-x86_64-pc-windows-msvc.exe
           fi
 
+          echo "Sidecars ready:"
+          ls -lah src-tauri/bin/
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:

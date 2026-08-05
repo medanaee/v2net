@@ -36,19 +36,19 @@ v2net is a high-performance cross-platform GUI application built with **Tauri v2
 You must install the standard Tauri prerequisites for your OS (Node.js, Rust, and OS-specific build tools).
 - See the [Tauri Prerequisites Guide](https://v2.tauri.app/start/prerequisites/).
 
-### 2. Setup the Xray Binary (Important)
+### 2. Setup Sidecar Binaries (Important)
 
-v2net relies on the native `xray` core binary to function. Since the binary files are large, they are ignored in git. **You must download the Xray binary manually before building.**
+v2net needs native `xray` + `sing-box` sidecars (and `wintun.dll` on Windows for TUN). These are gitignored under `src-tauri/bin/`.
 
-1. Create a `bin` folder inside the `src-tauri` directory if it doesn't exist: `src-tauri/bin/`.
-2. Download the latest `xray-core` release for your target OS from the [XTLS/Xray-core GitHub Releases](https://github.com/XTLS/Xray-core/releases).
-3. Extract the executable and rename it exactly to match the Tauri sidecar target triple format. For example:
-   - **Windows:** Place the `xray.exe` as `src-tauri/bin/xray-x86_64-pc-windows-msvc.exe`
-   - **Linux:** Place the `xray` binary as `src-tauri/bin/xray-x86_64-unknown-linux-gnu`
-   - **macOS (Intel):** Place the `xray` binary as `src-tauri/bin/xray-x86_64-apple-darwin`
-   - **macOS (Apple Silicon):** Place the `xray` binary as `src-tauri/bin/xray-aarch64-apple-darwin`
+1. Create `src-tauri/bin/` if needed.
+2. Place binaries with Tauri target-triple names:
+   - **Windows:** `xray-x86_64-pc-windows-msvc.exe`, `sing-box-x86_64-pc-windows-msvc.exe`, `wintun.dll`
+   - **Linux:** `xray-x86_64-unknown-linux-gnu`, `sing-box-x86_64-unknown-linux-gnu`
+   - **macOS (Intel):** `xray-x86_64-apple-darwin`, `sing-box-x86_64-apple-darwin`
+   - **macOS (Apple Silicon):** `xray-aarch64-apple-darwin`, `sing-box-aarch64-apple-darwin`
+3. Sources: [Xray-core releases](https://github.com/XTLS/Xray-core/releases), [sing-box releases](https://github.com/SagerNet/sing-box/releases).
 
-*Tip: If you're using GitHub Actions for CI/CD, the `.github/workflows/release.yml` file is already configured to do this automatically.*
+*Tip: GitHub Actions (`.github/workflows/release.yml`) downloads xray + sing-box (+ wintun on Windows) automatically per OS before building.*
 
 ### 3. Install Dependencies & Build
 
