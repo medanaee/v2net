@@ -125,13 +125,7 @@ fn show_main_window(app: &AppHandle) {
 }
 
 fn quit_app(app: &AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let _ = crate::connection::stop_proxy().await;
-        crate::tester::cancel_testing();
-        crate::kill_tracked_pids();
-        app.exit(0);
-    });
+    crate::begin_app_quit(app);
 }
 
 /// Build a tray that works across Windows and major Linux DEs (KDE/GNOME/…).

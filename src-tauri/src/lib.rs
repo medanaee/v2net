@@ -89,6 +89,8 @@ use geoip::lookup_country;
 use std::sync::Mutex;
 
 pub static SPAWNED_PIDS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+static SHUTTING_DOWN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 pub fn track_pid(pid: u32) {
     if let Ok(mut pids) = SPAWNED_PIDS.lock() {
@@ -96,25 +98,83 @@ pub fn track_pid(pid: u32) {
     }
 }
 
+/// Force-kill every tracked sidecar PID (waits for each kill).
 pub fn kill_tracked_pids() {
-    if let Ok(pids) = SPAWNED_PIDS.lock() {
-        for &pid in pids.iter() {
-            #[cfg(target_os = "windows")]
+    let pids = {
+        let mut guard = match SPAWNED_PIDS.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        std::mem::take(&mut *guard)
+    };
+
+    for pid in pids {
+        #[cfg(target_os = "windows")]
+        {
             let _ = std::process::Command::new("taskkill")
                 .args(["/F", "/PID", &pid.to_string(), "/T"])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                .spawn();
-            #[cfg(unix)]
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
+        #[cfg(unix)]
+        {
             let _ = std::process::Command::new("kill")
                 .args(["-9", &pid.to_string()])
-                .spawn();
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
         }
     }
 }
 
+/// Tracked PIDs + known sidecar image names (xray / sing-box).
+pub fn kill_all_children() {
+    kill_tracked_pids();
+    crate::connection::force_kill_all_sidecars();
+}
+
+/// Hide UI immediately, then tear down proxy/sidecars in the background and exit.
+/// Used by title-bar X and tray Quit so the app never feels frozen.
+pub fn begin_app_quit(app: &AppHandle) {
+    use std::sync::atomic::Ordering;
+    if SHUTTING_DOWN.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    for (_label, window) in app.webview_windows() {
+        let _ = window.hide();
+    }
+
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::tester::cancel_testing();
+        // Kill children first (fast); don't wait on slow stop_proxy / TUN sleeps.
+        crate::kill_all_children();
+        let _ = crate::connection::shutdown_for_exit().await;
+        crate::kill_all_children();
+        app.exit(0);
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    // single-instance must be registered first so a second launch is rejected early.
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(any(windows, target_os = "linux"))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
@@ -148,17 +208,11 @@ pub fn run() {
 
                 let app_handle = app.handle().clone();
                 window.on_window_event(move |event| match event {
-                    // Title-bar X / window close → full quit.
-                    // Hide-to-tray is a separate frontend button (window.hide).
+                    // Title-bar X → hide instantly, cleanup in background.
+                    // Hide-to-tray is a separate frontend button (window.hide only).
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
-                        let app_handle = app_handle.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let _ = crate::connection::stop_proxy().await;
-                            crate::tester::cancel_testing();
-                            crate::kill_tracked_pids();
-                            app_handle.exit(0);
-                        });
+                        crate::begin_app_quit(&app_handle);
                     }
                     _ => {}
                 });

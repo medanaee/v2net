@@ -90,6 +90,40 @@ fn force_kill_image(image: &str) {
         .status();
 }
 
+/// Kill every known sidecar image / process name (Windows + Linux).
+/// Safe to call during quit or before elevated relaunch.
+pub fn force_kill_all_sidecars() {
+    #[cfg(target_os = "windows")]
+    {
+        for image in [
+            "xray.exe",
+            "xray-x86_64-pc-windows-msvc.exe",
+            "sing-box.exe",
+            "sing-box-x86_64-pc-windows-msvc.exe",
+        ] {
+            force_kill_image(image);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        stop_linux_sudo_singbox();
+        let _ = std::process::Command::new("pkill")
+            .args(["-9", "-x", "xray"])
+            .status();
+        let _ = std::process::Command::new("pkill")
+            .args(["-9", "-f", "xray.*run"])
+            .status();
+        let _ = std::process::Command::new("pkill")
+            .args(["-9", "-x", "sing-box"])
+            .status();
+        let _ = std::process::Command::new("pkill")
+            .args(["-9", "-f", "sing-box.*run"])
+            .status();
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {}
+}
+
 #[cfg(target_os = "windows")]
 fn process_image_running(image: &str) -> bool {
     use std::os::windows::process::CommandExt;
@@ -580,7 +614,7 @@ async fn start_singbox_tun_front(
     Ok(())
 }
 
-async fn stop_proxy_inner(clear_system_proxy: bool) -> Result<(), String> {
+async fn stop_proxy_inner(clear_system_proxy: bool, fast: bool) -> Result<(), String> {
     let was_tun = {
         let mut tun_active = TUN_ACTIVE.lock().unwrap();
         let v = *tun_active;
@@ -621,15 +655,41 @@ async fn stop_proxy_inner(clear_system_proxy: bool) -> Result<(), String> {
     stop_xray_only().await;
 
     if was_tun {
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-        remove_tun_device();
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        if fast {
+            // Don't block quit/elevate on Wintun teardown.
+            std::thread::spawn(|| {
+                remove_tun_device();
+            });
+        } else {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            remove_tun_device();
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
     }
 
     if clear_system_proxy {
         let _ = update_system_proxy("clear".into(), 10808);
     }
     Ok(())
+}
+
+/// Fast teardown for app exit / admin relaunch (no long TUN sleeps).
+pub async fn shutdown_for_exit() -> Result<(), String> {
+    // Avoid waiting forever if another start/stop holds PROXY_OP.
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        PROXY_OP.lock(),
+    )
+    .await
+    {
+        Ok(_guard) => stop_proxy_inner(true, true).await,
+        Err(_) => {
+            eprintln!("[shutdown] PROXY_OP busy — force-killing children anyway");
+            crate::kill_all_children();
+            let _ = update_system_proxy("clear".into(), 10808);
+            Ok(())
+        }
+    }
 }
 
 #[tauri::command]
@@ -675,7 +735,7 @@ pub async fn start_proxy(
     }
 
     // Full stop when leaving TUN, first connect, TUN front dead, or soft-reconnect failed.
-    let _ = stop_proxy_inner(false).await;
+    let _ = stop_proxy_inner(false, false).await;
     if tun_mode {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         remove_tun_device();
@@ -704,7 +764,7 @@ pub async fn start_proxy(
 #[tauri::command]
 pub async fn stop_proxy() -> Result<(), String> {
     let _op = PROXY_OP.lock().await;
-    stop_proxy_inner(true).await
+    stop_proxy_inner(true, false).await
 }
 
 #[tauri::command]
@@ -838,23 +898,31 @@ pub fn check_elevation() -> bool {
 pub async fn restart_as_admin(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        // Release local proxy port / TUN before elevated relaunch — otherwise
-        // the new instance hits "address already in use" from orphaned sidecars.
-        let _ = stop_proxy().await;
+        use tauri::Manager;
+        // Hide immediately so TUN→UAC doesn't feel like a hang.
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.hide();
+        }
+
         crate::tester::cancel_testing();
-        crate::kill_tracked_pids();
-        force_kill_image("xray.exe");
-        force_kill_image("xray-x86_64-pc-windows-msvc.exe");
-        force_kill_image("sing-box.exe");
-        force_kill_image("sing-box-x86_64-pc-windows-msvc.exe");
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        // Kill orphans before elevated relaunch (port/TUN reuse).
+        crate::kill_all_children();
+        let _ = shutdown_for_exit().await;
+        crate::kill_all_children();
+        // Short settle only — UI already hidden.
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
 
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        use std::os::windows::process::CommandExt;
         std::process::Command::new("powershell")
             .args([
+                "-NoProfile",
+                "-WindowStyle",
+                "Hidden",
                 "-Command",
-                &format!("Start-Process '{}' -Verb RunAs", exe.display()),
+                &format!("Start-Process -FilePath '{}' -Verb RunAs", exe.display()),
             ])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .spawn()
             .map_err(|e| e.to_string())?;
         app.exit(0);

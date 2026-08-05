@@ -31,6 +31,9 @@ sysproxy = "0.3.0"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-os = "2.3.2"
 
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = "2"
+
 [target.'cfg(windows)'.dependencies]
 is_elevated = "0.1.2"
 
