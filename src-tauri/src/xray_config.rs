@@ -1,6 +1,164 @@
 use crate::tester::TestTarget;
 use serde_json::{json, Value};
 
+/// Build outbound streamSettings (shared by ping / connect / mixed).
+/// Matches v2rayN: `tcp` → `raw`, HTTP camouflage → `rawSettings` (not `tcpSettings`).
+fn build_stream_settings(target: &TestTarget) -> Value {
+    let mut stream_settings = json!({});
+
+    let network_in = target.network.clone().unwrap_or_else(|| "tcp".to_string());
+    let network = if network_in == "tcp" {
+        "raw".to_string()
+    } else {
+        network_in
+    };
+    stream_settings["network"] = json!(network);
+
+    if network == "ws" {
+        let mut ws_settings = json!({});
+        if let Some(path) = &target.path {
+            ws_settings["path"] = json!(path);
+        }
+        let mut ws_host = target.host.clone().unwrap_or_default();
+        if ws_host.is_empty() {
+            ws_host = target.sni.clone().unwrap_or_default();
+        }
+        if ws_host.is_empty() {
+            ws_host = target.address.clone();
+        }
+        ws_settings["host"] = json!(ws_host);
+        stream_settings["wsSettings"] = ws_settings;
+    } else if network == "grpc" {
+        let mut grpc_settings = json!({});
+        if let Some(path) = &target.path {
+            grpc_settings["serviceName"] = json!(path);
+        }
+        grpc_settings["multiMode"] = json!(false);
+        stream_settings["grpcSettings"] = grpc_settings;
+    } else if network == "h2" || network == "http" {
+        let mut http_settings = json!({});
+        if let Some(path) = &target.path {
+            http_settings["path"] = json!(path);
+        }
+        if let Some(host) = &target.host {
+            if !host.is_empty() {
+                let hosts: Vec<&str> = host.split(',').collect();
+                http_settings["host"] = json!(hosts);
+            }
+        }
+        stream_settings["httpSettings"] = http_settings;
+    } else if network == "xhttp" {
+        let mut xhttp_settings = json!({});
+        if let Some(path) = &target.path {
+            if !path.is_empty() {
+                xhttp_settings["path"] = json!(path);
+            }
+        }
+        if let Some(mode) = &target.mode {
+            if !mode.is_empty() {
+                xhttp_settings["mode"] = json!(mode);
+            }
+        }
+        if let Some(extra) = &target.extra {
+            if let Some(obj) = extra.as_object() {
+                for (k, v) in obj {
+                    xhttp_settings[k] = v.clone();
+                }
+            }
+        }
+        stream_settings["xhttpSettings"] = xhttp_settings;
+    } else if network == "raw" {
+        // Only emit rawSettings when HTTP header camouflage is requested.
+        // Plain Reality/TCP (headerType none/missing) stays network=raw with no header block.
+        let header_type = target.header_type.as_deref().unwrap_or("none");
+        if header_type.eq_ignore_ascii_case("http") {
+            let path = target
+                .path
+                .as_deref()
+                .filter(|p| !p.is_empty())
+                .unwrap_or("/");
+            let mut host = target.host.clone().unwrap_or_default();
+            if host.is_empty() {
+                host = target.sni.clone().unwrap_or_default();
+            }
+            // Same shape as v2rayN export for headerType=http
+            stream_settings["rawSettings"] = json!({
+                "header": {
+                    "type": "http",
+                    "request": {
+                        "version": "1.1",
+                        "method": "GET",
+                        "path": [path],
+                        "headers": {
+                            "Host": [host],
+                            "User-Agent": [],
+                            "Accept-Encoding": ["gzip, deflate"],
+                            "Connection": ["keep-alive"],
+                            "Pragma": "no-cache"
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    let security = target.tls.clone().unwrap_or_else(|| "none".to_string());
+    if security != "none" && !security.is_empty() {
+        stream_settings["security"] = json!(security);
+
+        if security == "tls" {
+            let mut tls_settings = json!({});
+            if let Some(sni) = &target.sni {
+                if !sni.is_empty() {
+                    tls_settings["serverName"] = json!(sni);
+                }
+            }
+            if let Some(alpn) = &target.alpn {
+                if !alpn.is_empty() {
+                    let alpns: Vec<&str> = alpn.split(',').collect();
+                    tls_settings["alpn"] = json!(alpns);
+                }
+            }
+            if let Some(fp) = &target.fp {
+                if !fp.is_empty() {
+                    tls_settings["fingerprint"] = json!(fp);
+                } else {
+                    tls_settings["fingerprint"] = json!("chrome");
+                }
+            } else {
+                tls_settings["fingerprint"] = json!("chrome");
+            }
+            stream_settings["tlsSettings"] = tls_settings;
+        } else if security == "reality" {
+            let mut reality_settings = json!({
+                "show": false,
+                "spiderX": ""
+            });
+            if let Some(sni) = &target.sni {
+                reality_settings["serverName"] = json!(sni);
+            }
+            if let Some(pbk) = &target.pbk {
+                reality_settings["publicKey"] = json!(pbk);
+            }
+            if let Some(sid) = &target.sid {
+                reality_settings["shortId"] = json!(sid);
+            }
+            if let Some(fp) = &target.fp {
+                if !fp.is_empty() {
+                    reality_settings["fingerprint"] = json!(fp);
+                } else {
+                    reality_settings["fingerprint"] = json!("chrome");
+                }
+            } else {
+                reality_settings["fingerprint"] = json!("chrome");
+            }
+            stream_settings["realitySettings"] = reality_settings;
+        }
+    }
+
+    stream_settings
+}
+
 pub fn generate_xray_config(target: &TestTarget, local_port: u16) -> Value {
     let inbound = json!({
         "port": local_port,
@@ -69,147 +227,7 @@ pub fn generate_xray_config(target: &TestTarget, local_port: u16) -> Value {
         _ => {}
     }
 
-    // Stream settings
-    let mut stream_settings = json!({});
-
-    // Network (tcp, ws, grpc, etc)
-    let network = target.network.clone().unwrap_or_else(|| "tcp".to_string());
-    stream_settings["network"] = json!(network);
-
-    if network == "ws" {
-        let mut ws_settings = json!({});
-        if let Some(path) = &target.path {
-            ws_settings["path"] = json!(path);
-        }
-        let mut ws_host = target.host.clone().unwrap_or_default();
-        if ws_host.is_empty() {
-            ws_host = target.sni.clone().unwrap_or_default();
-        }
-        if ws_host.is_empty() {
-            ws_host = target.address.clone();
-        }
-        ws_settings["host"] = json!(ws_host);
-        stream_settings["wsSettings"] = ws_settings;
-    } else if network == "grpc" {
-        let mut grpc_settings = json!({});
-        if let Some(path) = &target.path {
-            grpc_settings["serviceName"] = json!(path);
-        }
-        grpc_settings["multiMode"] = json!(false);
-        stream_settings["grpcSettings"] = grpc_settings;
-    } else if network == "h2" || network == "http" {
-        let mut http_settings = json!({});
-        if let Some(path) = &target.path {
-            http_settings["path"] = json!(path);
-        }
-        if let Some(host) = &target.host {
-            if !host.is_empty() {
-                let hosts: Vec<&str> = host.split(',').collect();
-                http_settings["host"] = json!(hosts);
-            }
-        }
-        stream_settings["httpSettings"] = http_settings;
-    } else if network == "xhttp" {
-        let mut xhttp_settings = json!({});
-        if let Some(path) = &target.path {
-            if !path.is_empty() {
-                xhttp_settings["path"] = json!(path);
-            }
-        }
-        if let Some(mode) = &target.mode {
-            if !mode.is_empty() {
-                xhttp_settings["mode"] = json!(mode);
-            }
-        }
-        if let Some(extra) = &target.extra {
-            if let Some(obj) = extra.as_object() {
-                for (k, v) in obj {
-                    xhttp_settings[k] = v.clone();
-                }
-            }
-        }
-        stream_settings["xhttpSettings"] = xhttp_settings;
-    } else if network == "tcp" {
-        if let Some(header_type) = &target.header_type {
-            if header_type == "http" {
-                let mut req = json!({
-                    "version": "1.1",
-                    "method": "GET",
-                    "path": ["/"],
-                    "headers": {
-                        "Host": [""]
-                    }
-                });
-                if let Some(path) = &target.path {
-                    if !path.is_empty() {
-                        req["path"] = json!([path]);
-                    }
-                }
-                if let Some(host) = &target.host {
-                    if !host.is_empty() {
-                        req["headers"]["Host"] = json!([host]);
-                    }
-                }
-                stream_settings["tcpSettings"] = json!({
-                    "header": {
-                        "type": "http",
-                        "request": req
-                    }
-                });
-            }
-        }
-    }
-
-    // Security (tls, reality, xtls)
-    let security = target.tls.clone().unwrap_or_else(|| "none".to_string());
-    if security != "none" && security != "" {
-        stream_settings["security"] = json!(security);
-
-        if security == "tls" {
-            let mut tls_settings = json!({});
-            if let Some(sni) = &target.sni {
-                if !sni.is_empty() {
-                    tls_settings["serverName"] = json!(sni);
-                }
-            }
-            if let Some(alpn) = &target.alpn {
-                if !alpn.is_empty() {
-                    let alpns: Vec<&str> = alpn.split(',').collect();
-                    tls_settings["alpn"] = json!(alpns);
-                }
-            }
-            if let Some(fp) = &target.fp {
-                if !fp.is_empty() {
-                    tls_settings["fingerprint"] = json!(fp);
-                } else {
-                    tls_settings["fingerprint"] = json!("chrome");
-                }
-            } else {
-                tls_settings["fingerprint"] = json!("chrome");
-            }
-            stream_settings["tlsSettings"] = tls_settings;
-        } else if security == "reality" {
-            let mut reality_settings = json!({
-                "show": false,
-                "spiderX": "/"
-            });
-            if let Some(sni) = &target.sni {
-                reality_settings["serverName"] = json!(sni);
-            }
-            if let Some(pbk) = &target.pbk {
-                reality_settings["publicKey"] = json!(pbk);
-            }
-            if let Some(sid) = &target.sid {
-                reality_settings["shortId"] = json!(sid);
-            }
-            if let Some(fp) = &target.fp {
-                reality_settings["fingerprint"] = json!(fp);
-            }
-            stream_settings["realitySettings"] = reality_settings;
-        }
-    }
-
-    outbound["streamSettings"] = stream_settings;
+    outbound["streamSettings"] = build_stream_settings(target);
 
     json!({
         "log": {
@@ -306,143 +324,7 @@ pub fn generate_xray_config_batch(targets_with_ports: &[(TestTarget, u16)]) -> V
             _ => {}
         }
 
-        let mut stream_settings = json!({});
-        let network = target.network.clone().unwrap_or_else(|| "tcp".to_string());
-        stream_settings["network"] = json!(network);
-
-        if network == "ws" {
-            let mut ws_settings = json!({});
-            if let Some(path) = &target.path {
-                ws_settings["path"] = json!(path);
-            }
-            let mut ws_host = target.host.clone().unwrap_or_default();
-            if ws_host.is_empty() {
-                ws_host = target.sni.clone().unwrap_or_default();
-            }
-            if ws_host.is_empty() {
-                ws_host = target.address.clone();
-            }
-            ws_settings["host"] = json!(ws_host);
-            stream_settings["wsSettings"] = ws_settings;
-        } else if network == "grpc" {
-            let mut grpc_settings = json!({});
-            if let Some(path) = &target.path {
-                grpc_settings["serviceName"] = json!(path);
-            }
-            grpc_settings["multiMode"] = json!(false);
-            stream_settings["grpcSettings"] = grpc_settings;
-        } else if network == "h2" || network == "http" {
-            let mut http_settings = json!({});
-            if let Some(path) = &target.path {
-                http_settings["path"] = json!(path);
-            }
-            if let Some(host) = &target.host {
-                if !host.is_empty() {
-                    let hosts: Vec<&str> = host.split(",").collect();
-                    http_settings["host"] = json!(hosts);
-                }
-            }
-            stream_settings["httpSettings"] = http_settings;
-        } else if network == "xhttp" {
-            let mut xhttp_settings = json!({});
-            if let Some(path) = &target.path {
-                if !path.is_empty() {
-                    xhttp_settings["path"] = json!(path);
-                }
-            }
-            if let Some(mode) = &target.mode {
-                if !mode.is_empty() {
-                    xhttp_settings["mode"] = json!(mode);
-                }
-            }
-            if let Some(extra) = &target.extra {
-                if let Some(obj) = extra.as_object() {
-                    for (k, v) in obj {
-                        xhttp_settings[k] = v.clone();
-                    }
-                }
-            }
-            stream_settings["xhttpSettings"] = xhttp_settings;
-        } else if network == "tcp" {
-            if let Some(header_type) = &target.header_type {
-                if header_type == "http" {
-                    let mut req = json!({
-                        "version": "1.1",
-                        "method": "GET",
-                        "path": ["/"],
-                        "headers": {
-                            "Host": [""]
-                        }
-                    });
-                    if let Some(path) = &target.path {
-                        if !path.is_empty() {
-                            req["path"] = json!([path]);
-                        }
-                    }
-                    if let Some(host) = &target.host {
-                        if !host.is_empty() {
-                            req["headers"]["Host"] = json!([host]);
-                        }
-                    }
-                    stream_settings["tcpSettings"] = json!({
-                        "header": {
-                            "type": "http",
-                            "request": req
-                        }
-                    });
-                }
-            }
-        }
-
-        let security = target.tls.clone().unwrap_or_else(|| "none".to_string());
-        if security != "none" && security != "" {
-            stream_settings["security"] = json!(security);
-
-            if security == "tls" {
-                let mut tls_settings = json!({});
-                if let Some(sni) = &target.sni {
-                    if !sni.is_empty() {
-                        tls_settings["serverName"] = json!(sni);
-                    }
-                }
-                if let Some(alpn) = &target.alpn {
-                    if !alpn.is_empty() {
-                        let alpns: Vec<&str> = alpn.split(",").collect();
-                        tls_settings["alpn"] = json!(alpns);
-                    }
-                }
-                if let Some(fp) = &target.fp {
-                    if !fp.is_empty() {
-                        tls_settings["fingerprint"] = json!(fp);
-                    } else {
-                        tls_settings["fingerprint"] = json!("chrome");
-                    }
-                } else {
-                    tls_settings["fingerprint"] = json!("chrome");
-                }
-                stream_settings["tlsSettings"] = tls_settings;
-            } else if security == "reality" {
-                let mut reality_settings = json!({
-                    "show": false,
-                    "spiderX": "/"
-                });
-                if let Some(sni) = &target.sni {
-                    reality_settings["serverName"] = json!(sni);
-                }
-                if let Some(pbk) = &target.pbk {
-                    reality_settings["publicKey"] = json!(pbk);
-                }
-                if let Some(sid) = &target.sid {
-                    reality_settings["shortId"] = json!(sid);
-                }
-                if let Some(fp) = &target.fp {
-                    reality_settings["fingerprint"] = json!(fp);
-                }
-                stream_settings["realitySettings"] = reality_settings;
-            }
-        }
-
-        outbound["streamSettings"] = stream_settings;
+        outbound["streamSettings"] = build_stream_settings(target);
         outbound["tag"] = json!(tag.clone());
         outbounds.push(outbound);
 
@@ -534,149 +416,7 @@ pub fn generate_xray_config_mixed(
         _ => {}
     }
 
-    let mut stream_settings = json!({});
-    // Xray/v2rayN use "raw" for plain TCP (legacy alias: "tcp").
-    let network = target.network.clone().unwrap_or_else(|| "tcp".to_string());
-    let network = if network == "tcp" {
-        "raw".to_string()
-    } else {
-        network
-    };
-    stream_settings["network"] = json!(network);
-
-    if network == "ws" {
-        let mut ws_settings = json!({});
-        if let Some(path) = &target.path {
-            ws_settings["path"] = json!(path);
-        }
-        let mut ws_host = target.host.clone().unwrap_or_default();
-        if ws_host.is_empty() {
-            ws_host = target.sni.clone().unwrap_or_default();
-        }
-        if ws_host.is_empty() {
-            ws_host = target.address.clone();
-        }
-        ws_settings["host"] = json!(ws_host);
-        stream_settings["wsSettings"] = ws_settings;
-    } else if network == "grpc" {
-        let mut grpc_settings = json!({});
-        if let Some(path) = &target.path {
-            grpc_settings["serviceName"] = json!(path);
-        }
-        grpc_settings["multiMode"] = json!(false);
-        stream_settings["grpcSettings"] = grpc_settings;
-    } else if network == "h2" || network == "http" {
-        let mut http_settings = json!({});
-        if let Some(path) = &target.path {
-            http_settings["path"] = json!(path);
-        }
-        if let Some(host) = &target.host {
-            if !host.is_empty() {
-                let hosts: Vec<&str> = host.split(",").collect();
-                http_settings["host"] = json!(hosts);
-            }
-        }
-        stream_settings["httpSettings"] = http_settings;
-    } else if network == "xhttp" {
-        let mut xhttp_settings = json!({});
-        if let Some(path) = &target.path {
-            if !path.is_empty() {
-                xhttp_settings["path"] = json!(path);
-            }
-        }
-        if let Some(mode) = &target.mode {
-            if !mode.is_empty() {
-                xhttp_settings["mode"] = json!(mode);
-            }
-        }
-        if let Some(extra) = &target.extra {
-            if let Some(obj) = extra.as_object() {
-                for (k, v) in obj {
-                    xhttp_settings[k] = v.clone();
-                }
-            }
-        }
-        stream_settings["xhttpSettings"] = xhttp_settings;
-    } else if network == "raw" {
-        if let Some(header_type) = &target.header_type {
-            if header_type == "http" {
-                let mut req = json!({
-                    "version": "1.1",
-                    "method": "GET",
-                    "path": ["/"],
-                    "headers": {
-                        "Host": [""]
-                    }
-                });
-                if let Some(path) = &target.path {
-                    if !path.is_empty() {
-                        req["path"] = json!([path]);
-                    }
-                }
-                if let Some(host) = &target.host {
-                    if !host.is_empty() {
-                        req["headers"]["Host"] = json!([host]);
-                    }
-                }
-                stream_settings["tcpSettings"] = json!({
-                    "header": {
-                        "type": "http",
-                        "request": req
-                    }
-                });
-            }
-        }
-    }
-
-    let security = target.tls.clone().unwrap_or_else(|| "none".to_string());
-    if security != "none" && security != "" {
-        stream_settings["security"] = json!(security);
-
-        if security == "tls" {
-            let mut tls_settings = json!({});
-            if let Some(sni) = &target.sni {
-                if !sni.is_empty() {
-                    tls_settings["serverName"] = json!(sni);
-                }
-            }
-            if let Some(alpn) = &target.alpn {
-                if !alpn.is_empty() {
-                    let alpns: Vec<&str> = alpn.split(",").collect();
-                    tls_settings["alpn"] = json!(alpns);
-                }
-            }
-            if let Some(fp) = &target.fp {
-                if !fp.is_empty() {
-                    tls_settings["fingerprint"] = json!(fp);
-                } else {
-                    tls_settings["fingerprint"] = json!("chrome");
-                }
-            } else {
-                tls_settings["fingerprint"] = json!("chrome");
-            }
-            stream_settings["tlsSettings"] = tls_settings;
-        } else if security == "reality" {
-            let mut reality_settings = json!({
-                "show": false,
-                "spiderX": "/"
-            });
-            if let Some(sni) = &target.sni {
-                reality_settings["serverName"] = json!(sni);
-            }
-            if let Some(pbk) = &target.pbk {
-                reality_settings["publicKey"] = json!(pbk);
-            }
-            if let Some(sid) = &target.sid {
-                reality_settings["shortId"] = json!(sid);
-            }
-            if let Some(fp) = &target.fp {
-                reality_settings["fingerprint"] = json!(fp);
-            }
-            stream_settings["realitySettings"] = reality_settings;
-        }
-    }
-
-    outbound["streamSettings"] = stream_settings;
+    outbound["streamSettings"] = build_stream_settings(target);
     outbound["tag"] = json!("proxy");
 
     let inbound = json!({
@@ -931,5 +671,52 @@ mod tests {
             .expect("proxy outbound");
         assert!(proxy.get("sendThrough").is_none());
         assert_eq!(proxy["streamSettings"]["network"], "raw");
+        // Plain TCP/reality: no HTTP camouflage block
+        assert!(proxy["streamSettings"].get("rawSettings").is_none());
+        assert!(proxy["streamSettings"].get("tcpSettings").is_none());
+    }
+
+    #[test]
+    fn reality_http_header_matches_v2rayn_raw_settings() {
+        let mut t = sample_target();
+        t.protocol = "vless".into();
+        t.uuid = Some("930ad553-4077-4556-b25b-569abbf1fa40".into());
+        t.secret = None;
+        t.network = Some("tcp".into());
+        t.header_type = Some("http".into());
+        t.path = Some("/assets".into());
+        t.host = Some("skyroom.online".into());
+        t.sni = Some("skyroom.online".into());
+        t.tls = Some("reality".into());
+        t.pbk = Some("eig4M43BwT0eJfg2Tfu5cHxQ5cWKFv07posBCidoFlk".into());
+        t.sid = Some("510ab49b8c0745a9".into());
+        t.fp = Some("chrome".into());
+
+        let cfg = generate_xray_config_mixed(&t, 10900, false);
+        let proxy = &cfg["outbounds"][0];
+        let stream = &proxy["streamSettings"];
+
+        assert_eq!(stream["network"], "raw");
+        assert_eq!(stream["security"], "reality");
+        assert!(stream.get("tcpSettings").is_none());
+        assert_eq!(stream["rawSettings"]["header"]["type"], "http");
+        assert_eq!(stream["rawSettings"]["header"]["request"]["path"], json!(["/assets"]));
+        assert_eq!(
+            stream["rawSettings"]["header"]["request"]["headers"]["Host"],
+            json!(["skyroom.online"])
+        );
+        assert_eq!(
+            stream["rawSettings"]["header"]["request"]["headers"]["User-Agent"],
+            json!([])
+        );
+        assert_eq!(stream["realitySettings"]["serverName"], "skyroom.online");
+        assert_eq!(stream["realitySettings"]["spiderX"], "");
+
+        // Batch (ping) path must match too
+        let batch = generate_xray_config_batch(&[(t, 30001)]);
+        let batch_stream = &batch["outbounds"][0]["streamSettings"];
+        assert_eq!(batch_stream["network"], "raw");
+        assert_eq!(batch_stream["rawSettings"]["header"]["type"], "http");
+        assert!(batch_stream.get("tcpSettings").is_none());
     }
 }
