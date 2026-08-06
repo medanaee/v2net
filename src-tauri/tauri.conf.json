@@ -36,8 +36,7 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "bin/xray",
-      "bin/sing-box"
+      "bin/xray"
     ]
   }
 }

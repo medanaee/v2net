@@ -475,26 +475,11 @@ pub fn generate_xray_config_batch(targets_with_ports: &[(TestTarget, u16)]) -> V
     })
 }
 
-/// Physical NIC chosen for TUN egress (avoids WSL/Hyper-V when `auto` picks wrong).
-#[derive(Debug, Clone, Default)]
-pub struct TunBindInfo {
-    pub interface_name: String,
-    pub local_ip: String,
-}
-
+/// Active proxy config (mixed inbound + optional native Xray TUN like v2rayN SampleTun).
 pub fn generate_xray_config_mixed(
     target: &crate::tester::TestTarget,
     local_port: u16,
     tun_mode: bool,
-) -> Value {
-    generate_xray_config_mixed_with_bind(target, local_port, tun_mode, None)
-}
-
-pub fn generate_xray_config_mixed_with_bind(
-    target: &crate::tester::TestTarget,
-    local_port: u16,
-    tun_mode: bool,
-    tun_bind: Option<TunBindInfo>,
 ) -> Value {
     let mut outbound = json!({
         "protocol": target.protocol,
@@ -550,7 +535,13 @@ pub fn generate_xray_config_mixed_with_bind(
     }
 
     let mut stream_settings = json!({});
+    // Xray/v2rayN use "raw" for plain TCP (legacy alias: "tcp").
     let network = target.network.clone().unwrap_or_else(|| "tcp".to_string());
+    let network = if network == "tcp" {
+        "raw".to_string()
+    } else {
+        network
+    };
     stream_settings["network"] = json!(network);
 
     if network == "ws" {
@@ -606,7 +597,7 @@ pub fn generate_xray_config_mixed_with_bind(
             }
         }
         stream_settings["xhttpSettings"] = xhttp_settings;
-    } else if network == "tcp" {
+    } else if network == "raw" {
         if let Some(header_type) = &target.header_type {
             if header_type == "http" {
                 let mut req = json!({
@@ -688,16 +679,6 @@ pub fn generate_xray_config_mixed_with_bind(
     outbound["streamSettings"] = stream_settings;
     outbound["tag"] = json!("proxy");
 
-    // Pin proxy egress by local IP (more reliable than interface name on Windows).
-    // Leave autoOutboundsInterface as "auto"; sendThrough prevents TUN loops.
-    if tun_mode {
-        if let Some(bind) = &tun_bind {
-            if !bind.local_ip.is_empty() {
-                outbound["sendThrough"] = json!(bind.local_ip);
-            }
-        }
-    }
-
     let inbound = json!({
         "port": local_port,
         "listen": "127.0.0.1",
@@ -708,7 +689,8 @@ pub fn generate_xray_config_mixed_with_bind(
         },
         "sniffing": {
             "enabled": true,
-            "destOverride": ["http", "tls", "quic"]
+            "destOverride": ["http", "tls"],
+            "routeOnly": true
         }
     });
 
@@ -722,7 +704,7 @@ pub fn generate_xray_config_mixed_with_bind(
         "tag": "api"
     });
 
-    // TUN inbound must match v2rayN SampleTunInbound.
+    // Match v2rayN working SampleTun (Xray TUN docs recommended fields).
     let mut inbounds = vec![inbound, api_inbound];
     if tun_mode {
         inbounds.push(json!({
@@ -730,15 +712,15 @@ pub fn generate_xray_config_mixed_with_bind(
             "protocol": "tun",
             "settings": {
                 "name": "xray_tun",
-                "MTU": 1500,
+                "MTU": 9000,
                 "gateway": ["172.18.0.1/30"],
-                "dns": ["1.1.1.1", "8.8.8.8"],
                 "autoSystemRoutingTable": ["0.0.0.0/0"],
-                "autoOutboundsInterface": "auto"
+                "autoOutboundsInterface": "auto",
+                "dns": ["1.1.1.1", "8.8.8.8"]
             },
             "sniffing": {
                 "enabled": true,
-                "destOverride": ["http", "tls", "quic"],
+                "destOverride": ["http", "tls"],
                 "routeOnly": true
             }
         }));
@@ -765,24 +747,36 @@ pub fn generate_xray_config_mixed_with_bind(
             "ip": ["224.0.0.0/3", "ff00::/8"],
             "outboundTag": "block"
         }));
-        // Protect core process from TUN loop (v2rayN uses xray/ + self/)
+        // Process routing — keep core off TUN loop (v2rayN: xray/ + self/)
         rules.push(json!({
             "type": "field",
             "port": "53",
-            "process": ["xray/", "self/", "xray.exe", "xray-x86_64-pc-windows-msvc.exe"],
-            "outboundTag": "dns-out"
+            "process": ["xray/", "self/"],
+            "outboundTag": "dns"
         }));
         rules.push(json!({
             "type": "field",
-            "process": ["xray/", "self/", "xray.exe", "xray-x86_64-pc-windows-msvc.exe"],
+            "process": ["xray/", "self/"],
             "outboundTag": "direct"
         }));
         rules.push(json!({
             "type": "field",
             "inboundTag": ["tun"],
             "port": "53",
-            "outboundTag": "dns-out"
+            "outboundTag": "dns"
         }));
+        rules.push(json!({
+            "type": "field",
+            "network": "udp",
+            "port": "443",
+            "outboundTag": "block"
+        }));
+        rules.push(json!({
+            "type": "field",
+            "protocol": ["bittorrent"],
+            "outboundTag": "direct"
+        }));
+        // No geoip/geosite rules — avoids requiring geoip.dat / geosite.dat next to the core.
     }
 
     rules.push(json!({
@@ -799,6 +793,26 @@ pub fn generate_xray_config_mixed_with_bind(
         "port": "0-65535",
         "outboundTag": "proxy"
     }));
+
+    let direct_outbound = if tun_mode {
+        json!({
+            "protocol": "freedom",
+            "tag": "direct",
+            "streamSettings": {
+                "sockopt": {
+                    "domainStrategy": "UseIP"
+                }
+            }
+        })
+    } else {
+        json!({
+            "protocol": "freedom",
+            "tag": "direct",
+            "settings": {
+                "domainStrategy": "UseIP"
+            }
+        })
+    };
 
     let mut config = json!({
         "log": {
@@ -820,24 +834,18 @@ pub fn generate_xray_config_mixed_with_bind(
         "inbounds": inbounds,
         "outbounds": [
             outbound,
-            json!({
-                "protocol": "freedom",
-                "tag": "direct",
-                "settings": {
-                    "domainStrategy": "UseIP"
-                }
-            }),
+            direct_outbound,
             json!({
                 "protocol": "blackhole",
                 "tag": "block"
             }),
             json!({
                 "protocol": "dns",
-                "tag": "dns-out"
+                "tag": "dns"
             })
         ],
         "routing": {
-            "domainStrategy": "IPIfNonMatch",
+            "domainStrategy": if tun_mode { "IPOnDemand" } else { "IPIfNonMatch" },
             "rules": rules
         }
     });
@@ -875,7 +883,7 @@ mod tests {
             uuid: None,
             secret: Some("pw".into()),
             method: None,
-            network: Some("ws".into()),
+            network: Some("tcp".into()),
             header_type: None,
             path: Some("/x".into()),
             host: Some("h".into()),
@@ -893,11 +901,7 @@ mod tests {
 
     #[test]
     fn tun_inbound_matches_v2rayn_sample() {
-        let bind = TunBindInfo {
-            interface_name: "Wi-Fi 2".into(),
-            local_ip: "172.17.139.154".into(),
-        };
-        let cfg = generate_xray_config_mixed_with_bind(&sample_target(), 10900, true, Some(bind));
+        let cfg = generate_xray_config_mixed(&sample_target(), 10900, true);
         let tun = cfg["inbounds"]
             .as_array()
             .unwrap()
@@ -908,15 +912,16 @@ mod tests {
         assert_eq!(tun["tag"], "tun");
         assert!(tun.get("listen").is_none());
         assert!(tun.get("port").is_none());
-        assert!(tun["settings"].get("address").is_none());
-        assert_eq!(tun["settings"]["dns"], json!(["1.1.1.1", "8.8.8.8"]));
+        assert_eq!(tun["settings"]["MTU"], 9000);
+        assert_eq!(tun["settings"]["gateway"], json!(["172.18.0.1/30"]));
         assert_eq!(
             tun["settings"]["autoSystemRoutingTable"],
             json!(["0.0.0.0/0"])
         );
         assert_eq!(tun["settings"]["autoOutboundsInterface"], "auto");
-        assert_eq!(tun["settings"]["gateway"], json!(["172.18.0.1/30"]));
+        assert_eq!(tun["settings"]["dns"], json!(["1.1.1.1", "8.8.8.8"]));
         assert_eq!(tun["sniffing"]["routeOnly"], true);
+        assert_eq!(cfg["routing"]["domainStrategy"], "IPOnDemand");
 
         let proxy = cfg["outbounds"]
             .as_array()
@@ -924,7 +929,7 @@ mod tests {
             .iter()
             .find(|o| o["tag"] == "proxy")
             .expect("proxy outbound");
-        assert_eq!(proxy["sendThrough"], "172.17.139.154");
-        assert!(proxy["streamSettings"].get("sockopt").is_none());
+        assert!(proxy.get("sendThrough").is_none());
+        assert_eq!(proxy["streamSettings"]["network"], "raw");
     }
 }

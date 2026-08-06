@@ -2,7 +2,6 @@ mod connection;
 mod geoip;
 #[cfg(target_os = "linux")]
 mod linux_sysproxy;
-mod singbox_config;
 mod subscription;
 mod tester;
 mod tray;
@@ -129,7 +128,7 @@ pub fn kill_tracked_pids() {
     }
 }
 
-/// Tracked PIDs + known sidecar image names (xray / sing-box).
+/// Tracked PIDs + Xray sidecar cleanup.
 pub fn kill_all_children() {
     kill_tracked_pids();
     crate::connection::force_kill_all_sidecars();

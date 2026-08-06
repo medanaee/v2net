@@ -11,7 +11,6 @@ use tauri_plugin_shell::ShellExt;
 use crate::tester::TestTarget;
 
 static ACTIVE_XRAY: Mutex<Option<tauri_plugin_shell::process::CommandChild>> = Mutex::new(None);
-static ACTIVE_SINGBOX: Mutex<Option<tauri_plugin_shell::process::CommandChild>> = Mutex::new(None);
 static TUN_ACTIVE: Mutex<bool> = Mutex::new(false);
 /// Serialize start/stop so right-click reconnect cannot race (port-in-use / app flap).
 static PROXY_OP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -32,7 +31,7 @@ fn process_is_elevated() -> bool {
     }
 }
 
-/// v2rayN CoreAdminManager: track sudo-launched sing-box PID + password for kill_as_sudo.
+/// v2rayN CoreAdminManager: track sudo-launched Xray PID + password for kill_as_sudo.
 #[cfg(target_os = "linux")]
 static LINUX_SUDO_PWD: Mutex<Option<String>> = Mutex::new(None);
 #[cfg(target_os = "linux")]
@@ -46,7 +45,7 @@ static LINUX_SUDO_CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
 fn remove_tun_device() {
     use std::os::windows::process::CommandExt;
     let script = r#"
-$names = @('wintunsingbox_tun','singbox_tun','xray_tun')
+$names = @('xray_tun')
 foreach ($n in $names) {
   try {
     $md5 = [System.Security.Cryptography.MD5]::Create()
@@ -79,64 +78,27 @@ fn force_kill_pid(pid: u32) {
         .status();
 }
 
-#[cfg(target_os = "windows")]
-fn force_kill_image(image: &str) {
-    use std::os::windows::process::CommandExt;
-    let _ = std::process::Command::new("taskkill")
-        .args(["/F", "/IM", image, "/T"])
-        .creation_flags(0x08000000)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-}
-
-/// Kill every known sidecar image / process name (Windows + Linux).
-/// Safe to call during quit or before elevated relaunch.
+/// Kill only sidecars this app spawned. Never taskkill/pkill by global image name.
 pub fn force_kill_all_sidecars() {
-    #[cfg(target_os = "windows")]
-    {
-        for image in [
-            "xray.exe",
-            "xray-x86_64-pc-windows-msvc.exe",
-            "sing-box.exe",
-            "sing-box-x86_64-pc-windows-msvc.exe",
-        ] {
-            force_kill_image(image);
-        }
-    }
     #[cfg(target_os = "linux")]
     {
-        stop_linux_sudo_singbox();
-        let _ = std::process::Command::new("pkill")
-            .args(["-9", "-x", "xray"])
-            .status();
-        let _ = std::process::Command::new("pkill")
-            .args(["-9", "-f", "xray.*run"])
-            .status();
-        let _ = std::process::Command::new("pkill")
-            .args(["-9", "-x", "sing-box"])
-            .status();
-        let _ = std::process::Command::new("pkill")
-            .args(["-9", "-f", "sing-box.*run"])
-            .status();
+        stop_linux_sudo_core();
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-    {}
-}
-
-#[cfg(target_os = "windows")]
-fn process_image_running(image: &str) -> bool {
-    use std::os::windows::process::CommandExt;
-    let output = std::process::Command::new("tasklist")
-        .args(["/FI", &format!("IMAGENAME eq {}", image), "/NH"])
-        .creation_flags(0x08000000)
-        .output();
-    match output {
-        Ok(out) => {
-            let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
-            text.contains(&image.to_lowercase())
+    if let Ok(mut g) = ACTIVE_XRAY.lock() {
+        if let Some(child) = g.take() {
+            let pid = child.pid();
+            let _ = child.kill();
+            #[cfg(target_os = "windows")]
+            force_kill_pid(pid);
+            #[cfg(unix)]
+            {
+                let _ = std::process::Command::new("kill")
+                    .args(["-9", &pid.to_string()])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
         }
-        Err(_) => false,
     }
 }
 
@@ -145,16 +107,15 @@ fn tun_front_running() -> bool {
     if !flagged {
         return false;
     }
-    let has_child = ACTIVE_SINGBOX.lock().map(|g| g.is_some()).unwrap_or(false);
-    #[cfg(target_os = "windows")]
+    let has_xray = ACTIVE_XRAY.lock().map(|g| g.is_some()).unwrap_or(false);
+    #[cfg(target_os = "linux")]
     {
-        has_child
-            || process_image_running("sing-box.exe")
-            || process_image_running("sing-box-x86_64-pc-windows-msvc.exe")
+        let has_sudo = LINUX_SUDO_PID.lock().map(|g| g.is_some()).unwrap_or(false);
+        return has_xray || has_sudo;
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(target_os = "linux"))]
     {
-        has_child
+        has_xray
     }
 }
 
@@ -264,8 +225,9 @@ fi
     run_as_root_shell(&script);
 }
 
+/// Kill only the sudo-launched core we tracked — never pkill by global image name.
 #[cfg(target_os = "linux")]
-fn stop_linux_sudo_singbox() {
+fn stop_linux_sudo_core() {
     if let Ok(mut child_guard) = LINUX_SUDO_CHILD.lock() {
         if let Some(mut child) = child_guard.take() {
             let pid = child.id();
@@ -279,9 +241,6 @@ fn stop_linux_sudo_singbox() {
             kill_linux_sudo_process_tree(pid);
         }
     }
-    run_as_root_shell(
-        "pkill -9 -x sing-box 2>/dev/null || true; pkill -9 -f 'sing-box.*run -c' 2>/dev/null || true",
-    );
     // Keep LINUX_SUDO_PWD for the session (v2rayN keeps LinuxSudoPwd in memory).
 }
 
@@ -436,10 +395,11 @@ fn find_sidecar_binary(name_prefix: &str) -> Option<std::path::PathBuf> {
     None
 }
 
-/// Start sing-box TUN with sudo on Linux (needs CAP_NET_ADMIN).
+/// Start a sidecar with sudo on Linux when TUN needs CAP_NET_ADMIN.
 #[cfg(target_os = "linux")]
-async fn start_singbox_linux_sudo(
-    config_path: &std::path::Path,
+async fn start_linux_sudo_core(
+    binary_prefix: &str,
+    run_args: &[&str],
     sudo_password: Option<String>,
 ) -> Result<(), String> {
     let already_root = process_is_elevated();
@@ -458,29 +418,26 @@ async fn start_singbox_linux_sudo(
         }
     }
 
-    let path_to_run = find_sidecar_binary("sing-box")
+    let path_to_run = find_sidecar_binary(binary_prefix)
         .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| "sing-box".to_string());
+        .unwrap_or_else(|| binary_prefix.to_string());
 
     let mut child = if already_root {
-        std::process::Command::new(&path_to_run)
-            .arg("run")
-            .arg("-c")
-            .arg(config_path.to_string_lossy().to_string())
-            .stdout(std::process::Stdio::piped())
+        let mut cmd = std::process::Command::new(&path_to_run);
+        for a in run_args {
+            cmd.arg(a);
+        }
+        cmd.stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
-            .map_err(|e| format!("Failed to run sing-box: {}", e))?
+            .map_err(|e| format!("Failed to run {}: {}", binary_prefix, e))?
     } else {
-        let mut child = std::process::Command::new("sudo")
-            .arg("-S")
-            .arg("-p")
-            .arg("")
-            .arg("--")
-            .arg(&path_to_run)
-            .arg("run")
-            .arg("-c")
-            .arg(config_path.to_string_lossy().to_string())
+        let mut cmd = std::process::Command::new("sudo");
+        cmd.arg("-S").arg("-p").arg("").arg("--").arg(&path_to_run);
+        for a in run_args {
+            cmd.arg(a);
+        }
+        let mut child = cmd
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -492,17 +449,16 @@ async fn start_singbox_linux_sudo(
         child
     };
 
-    // Give sudo/sing-box a moment; if auth failed the process exits immediately.
     tokio::time::sleep(std::time::Duration::from_millis(400)).await;
     match child.try_wait() {
         Ok(Some(status)) => {
             return Err(format!(
-                "sing-box/sudo exited early with status {}. Wrong password or missing CAP_NET_ADMIN?",
-                status
+                "{}/sudo exited early with status {}. Wrong password or missing CAP_NET_ADMIN?",
+                binary_prefix, status
             ));
         }
         Ok(None) => {}
-        Err(e) => return Err(format!("failed to check sing-box process: {e}")),
+        Err(e) => return Err(format!("failed to check {} process: {e}", binary_prefix)),
     }
 
     let pid = child.id();
@@ -511,21 +467,24 @@ async fn start_singbox_linux_sudo(
         *guard = Some(pid);
     }
 
+    let log_prefix = binary_prefix.to_uppercase();
     if let Some(stdout) = child.stdout.take() {
+        let prefix = log_prefix.clone();
         std::thread::spawn(move || {
             use std::io::{BufRead, BufReader};
             let reader = BufReader::new(stdout);
             for line in reader.lines().flatten() {
-                println!("[SINGBOX SUDO STDOUT] {}", line);
+                println!("[{} SUDO STDOUT] {}", prefix, line);
             }
         });
     }
     if let Some(stderr) = child.stderr.take() {
+        let prefix = log_prefix;
         std::thread::spawn(move || {
             use std::io::{BufRead, BufReader};
             let reader = BufReader::new(stderr);
             for line in reader.lines().flatten() {
-                eprintln!("[SINGBOX SUDO STDERR] {}", line);
+                eprintln!("[{} SUDO STDERR] {}", prefix, line);
             }
         });
     }
@@ -536,16 +495,19 @@ async fn start_singbox_linux_sudo(
     Ok(())
 }
 
+/// Write Xray config and start it (native TUN inbound when tun_mode).
 async fn write_and_start_xray(
     app: &AppHandle,
     target: &TestTarget,
     local_port: u16,
+    tun_mode: bool,
+    sudo_password: Option<String>,
 ) -> Result<(), String> {
     let temp_dir = std::env::temp_dir().join("v2ray_test_configs");
     let _ = fs::create_dir_all(&temp_dir);
 
-    let xray_config =
-        crate::xray_config::generate_xray_config_mixed_with_bind(target, local_port, false, None);
+    // Official Xray TUN (v2rayN SampleTun shape); core owns routes via autoSystemRoutingTable.
+    let xray_config = crate::xray_config::generate_xray_config_mixed(target, local_port, tun_mode);
     let xray_config_path = temp_dir.join("active_proxy.json");
     fs::write(
         &xray_config_path,
@@ -553,63 +515,40 @@ async fn write_and_start_xray(
     )
     .map_err(|e| e.to_string())?;
     println!(
-        "[start_proxy] xray config written to {}",
-        xray_config_path.display()
+        "[start_proxy] xray config written to {} (tun={})",
+        xray_config_path.display(),
+        tun_mode
     );
 
-    ensure_wintun_dll(app);
+    if tun_mode {
+        ensure_wintun_dll(app);
+    }
 
     let xray_cfg = xray_config_path.to_string_lossy().to_string();
+
+    #[cfg(target_os = "linux")]
+    {
+        if tun_mode {
+            start_linux_sudo_core("xray", &["run", "-config", &xray_cfg], sudo_password).await?;
+            if let Ok(mut tun_active) = TUN_ACTIVE.lock() {
+                *tun_active = true;
+            }
+            return Ok(());
+        }
+        let _ = sudo_password;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = sudo_password;
+    }
+
     let xray_child = spawn_sidecar(app, "xray", &["run", "-config", &xray_cfg], "XRAY").await?;
     {
         let mut guard = ACTIVE_XRAY.lock().unwrap();
         *guard = Some(xray_child);
     }
-    Ok(())
-}
-
-async fn start_singbox_tun_front(
-    app: &AppHandle,
-    local_port: u16,
-    sudo_password: Option<String>,
-) -> Result<(), String> {
-    let temp_dir = std::env::temp_dir().join("v2ray_test_configs");
-    let exe_dir = sidecar_workdir(app);
-    let bin_dir = {
-        use tauri::Manager;
-        app.path()
-            .resource_dir()
-            .unwrap_or_else(|_| std::env::current_dir().unwrap())
-            .join("bin")
-    };
-    let protect = crate::singbox_config::collect_protect_paths(&[exe_dir, bin_dir]);
-    let sb_config = crate::singbox_config::generate_singbox_tun_config(local_port, &protect);
-    let sb_config_path = temp_dir.join("active_singbox_tun.json");
-    fs::write(
-        &sb_config_path,
-        serde_json::to_string_pretty(&sb_config).unwrap_or_else(|_| sb_config.to_string()),
-    )
-    .map_err(|e| e.to_string())?;
-    println!(
-        "[start_proxy] sing-box TUN config written to {}",
-        sb_config_path.display()
-    );
-
-    #[cfg(target_os = "linux")]
-    {
-        start_singbox_linux_sudo(&sb_config_path, sudo_password).await?;
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = sudo_password;
-        let sb_cfg = sb_config_path.to_string_lossy().to_string();
-        let sb_child = spawn_sidecar(app, "sing-box", &["run", "-c", &sb_cfg], "SINGBOX").await?;
-        let mut guard = ACTIVE_SINGBOX.lock().unwrap();
-        *guard = Some(sb_child);
-    }
-
     if let Ok(mut tun_active) = TUN_ACTIVE.lock() {
-        *tun_active = true;
+        *tun_active = tun_mode;
     }
     Ok(())
 }
@@ -622,41 +561,15 @@ async fn stop_proxy_inner(clear_system_proxy: bool, fast: bool) -> Result<(), St
         v
     };
 
-    // Stop sing-box first (TUN owner), then Xray
-    let singbox_pid = {
-        let mut guard = ACTIVE_SINGBOX.lock().unwrap();
-        guard.take().map(|child| {
-            let pid = child.pid();
-            let _ = child.kill();
-            pid
-        })
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        if let Some(pid) = singbox_pid {
-            force_kill_pid(pid);
-        }
-        if was_tun {
-            force_kill_image("sing-box.exe");
-            force_kill_image("sing-box-x86_64-pc-windows-msvc.exe");
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = singbox_pid;
-    }
-
     #[cfg(target_os = "linux")]
     {
-        stop_linux_sudo_singbox();
+        stop_linux_sudo_core();
     }
 
     stop_xray_only().await;
 
     if was_tun {
         if fast {
-            // Don't block quit/elevate on Wintun teardown.
             std::thread::spawn(|| {
                 remove_tun_device();
             });
@@ -715,26 +628,29 @@ pub async fn start_proxy(
         #[cfg(target_os = "windows")]
         if !process_is_elevated() {
             return Err(
-                "TUN mode requires administrator privileges (sing-box needs admin for Wintun)"
+                "TUN mode requires administrator privileges (Xray TUN / Wintun needs admin)"
                     .into(),
             );
         }
     }
 
-    // Soft switch: keep sing-box TUN, only reload Xray outbound (no Wintun recreate / no network flap).
+    // Soft reconnect: restart Xray with new TUN outbound (same process owns TUN).
     if tun_mode && tun_front_running() {
-        println!("[start_proxy] soft reconnect — restart Xray only, keep sing-box TUN");
+        println!("[start_proxy] soft reconnect — restart Xray TUN with new outbound");
+        #[cfg(target_os = "linux")]
+        {
+            stop_linux_sudo_core();
+        }
         stop_xray_only().await;
         if wait_port_free(local_port, 4000).await.is_ok() {
-            write_and_start_xray(&app, &target, local_port).await?;
-            wait_for_socks_port(local_port, 5000).await?;
+            write_and_start_xray(&app, &target, local_port, true, sudo_password.clone()).await?;
+            wait_for_socks_port(local_port, 8000).await?;
             update_system_proxy("clear".into(), local_port)?;
             return Ok(());
         }
         eprintln!("[start_proxy] soft reconnect port busy; falling back to full restart");
     }
 
-    // Full stop when leaving TUN, first connect, TUN front dead, or soft-reconnect failed.
     let _ = stop_proxy_inner(false, false).await;
     if tun_mode {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -743,15 +659,12 @@ pub async fn start_proxy(
     }
     wait_port_free(local_port, 5000).await?;
 
-    write_and_start_xray(&app, &target, local_port).await?;
+    write_and_start_xray(&app, &target, local_port, tun_mode, sudo_password).await?;
+    wait_for_socks_port(local_port, if tun_mode { 8000 } else { 5000 }).await?;
 
     if tun_mode {
-        wait_for_socks_port(local_port, 5000).await?;
-        start_singbox_tun_front(&app, local_port, sudo_password).await?;
         update_system_proxy("clear".into(), local_port)?;
     } else {
-        #[cfg(not(target_os = "linux"))]
-        let _ = sudo_password;
         if let Ok(mut tun_active) = TUN_ACTIVE.lock() {
             *tun_active = false;
         }

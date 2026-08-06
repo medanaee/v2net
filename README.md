@@ -38,17 +38,17 @@ You must install the standard Tauri prerequisites for your OS (Node.js, Rust, an
 
 ### 2. Setup Sidecar Binaries (Important)
 
-v2net needs native `xray` + `sing-box` sidecars (and `wintun.dll` on Windows for TUN). These are gitignored under `src-tauri/bin/`.
+v2net needs a native `xray` sidecar (and `wintun.dll` on Windows for TUN). These are gitignored under `src-tauri/bin/`.
 
 1. Create `src-tauri/bin/` if needed.
 2. Place binaries with Tauri target-triple names:
-   - **Windows:** `xray-x86_64-pc-windows-msvc.exe`, `sing-box-x86_64-pc-windows-msvc.exe`, `wintun.dll`
-   - **Linux:** `xray-x86_64-unknown-linux-gnu`, `sing-box-x86_64-unknown-linux-gnu`
-   - **macOS (Intel):** `xray-x86_64-apple-darwin`, `sing-box-x86_64-apple-darwin`
-   - **macOS (Apple Silicon):** `xray-aarch64-apple-darwin`, `sing-box-aarch64-apple-darwin`
-3. Sources: [Xray-core releases](https://github.com/XTLS/Xray-core/releases), [sing-box releases](https://github.com/SagerNet/sing-box/releases).
+   - **Windows:** `xray-x86_64-pc-windows-msvc.exe`, `wintun.dll`
+   - **Linux:** `xray-x86_64-unknown-linux-gnu`
+   - **macOS (Intel):** `xray-x86_64-apple-darwin`
+   - **macOS (Apple Silicon):** `xray-aarch64-apple-darwin`
+3. Source: newest [Xray-core release](https://github.com/XTLS/Xray-core/releases) (including prereleases such as [v26.7.28](https://github.com/XTLS/Xray-core/releases/tag/v26.7.28)).
 
-*Tip: GitHub Actions (`.github/workflows/release.yml`) downloads xray + sing-box (+ wintun on Windows) automatically per OS before building.*
+*Tip: GitHub Actions (`.github/workflows/release.yml`) downloads the newest non-draft Xray release (+ wintun on Windows) automatically before building.*
 
 ### 3. Install Dependencies & Build
 
