@@ -398,19 +398,19 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
       {/* Table Header */}
-      <div className="h-7 border-b flex items-center text-[11px] font-semibold bg-card/50 border-border/50 text-muted-foreground select-none px-4 shrink-0 justify-start text-left">
-        <div className="w-10 flex items-center justify-start pr-2">
+      <div className="h-7 border-b flex items-center text-[11px] font-semibold bg-card/50 border-border/50 text-muted-foreground select-none px-4 shrink-0 justify-start text-start">
+        <div className="w-10 flex items-center justify-start pe-2">
           <Checkbox
             checked={isAllSelected}
             onCheckedChange={(checked) => handleHeaderCheckboxChange(!!checked)}
           />
         </div>
-        <div className="w-10 text-left">#</div>
-        <div className="w-28 text-left">{t('protocol')}</div>
-        <div className="flex-1 truncate text-left">{t('remark')}</div>
-        <div className="w-56 truncate text-left">{t('address')}</div>
+        <div className="w-10 text-start">#</div>
+        <div className="w-28 text-start">{t('protocol')}</div>
+        <div className="flex-1 truncate text-start pe-2">{t('remark')}</div>
+        <div className="w-56 truncate text-start pe-2">{t('address')}</div>
         <div
-          className="w-24 text-left cursor-pointer hover:text-foreground transition-colors flex items-center"
+          className="w-24 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
           title={t('secondarySortHint')}
           onClick={() => handleSort('ping')}
           onContextMenu={(e) => {
@@ -422,7 +422,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
           {renderSortIcon('ping')}
         </div>
         <div
-          className="w-32 text-left cursor-pointer hover:text-foreground transition-colors flex items-center"
+          className="w-32 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
           title={t('secondarySortHint')}
           onClick={() => handleSort('country')}
           onContextMenu={(e) => {
@@ -434,7 +434,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
           {renderSortIcon('country')}
         </div>
         <div
-          className="w-24 text-left cursor-pointer hover:text-foreground transition-colors flex items-center"
+          className="w-24 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
           title={t('secondarySortHint')}
           onClick={() => handleSort('speed')}
           onContextMenu={(e) => {
@@ -445,11 +445,11 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
           {t('speed')}
           {renderSortIcon('speed')}
         </div>
-        <div className="w-28 text-left">{t('sites')}</div>
+        <div className="w-28 text-start">{t('sites')}</div>
         {settings.showTrafficStats && (
           <>
-            <div className="w-24 text-left">{t('todayUsage')}</div>
-            <div className="w-24 text-left">{t('totalUsage')}</div>
+            <div className="w-24 text-start">{t('todayUsage')}</div>
+            <div className="w-24 text-start">{t('totalUsage')}</div>
           </>
         )}
       </div>
@@ -497,7 +497,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
                         height: `${virtualRow.size}px`,
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
-                      className={`flex items-center text-xs border-b border-border/30 cursor-pointer h-7 text-xs leading-7 select-none transition-colors text-left justify-start pl-4 pr-2.5 ${
+                      className={`flex items-center text-xs border-b border-border/30 cursor-pointer h-7 text-xs leading-7 select-none transition-colors text-start justify-start ps-4 pe-2.5 ${
                         isActive
                           ? 'bg-emerald-500/20 dark:bg-emerald-500/25 font-semibold text-emerald-950 dark:text-emerald-100'
                           : isSelected
@@ -506,7 +506,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
                       }`}
                     >
                       <div
-                        className="w-10 flex items-center justify-start pr-2"
+                        className="w-10 flex items-center justify-start pe-2"
                         onClick={(e) => e.stopPropagation()}
                       >
                         <Checkbox
@@ -517,50 +517,50 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
                         />
                       </div>
 
-                      <div className="w-10 text-left text-muted-foreground/70 text-[11px] font-mono">
+                      <div className="w-10 text-start text-muted-foreground/70 text-[11px] font-mono">
                         {virtualRow.index + 1}
                       </div>
 
-                      <div className="w-28 text-left font-mono font-semibold uppercase text-[11px] text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                      <div className="w-28 text-start font-mono font-semibold uppercase text-[11px] text-blue-600 dark:text-blue-400 flex items-center gap-1">
                         {isActive && (
                           <Zap className="w-3.5 h-3.5 text-emerald-500 fill-emerald-500" />
                         )}
                         {item.protocol}
                       </div>
 
-                      <div className="flex-1 truncate font-medium text-left">
+                      <div className="flex-1 truncate font-medium text-start pe-2">
                         {item.name}
                       </div>
 
-                      <div className="w-56 truncate text-left text-[11px] text-muted-foreground font-mono">
+                      <div className="w-56 truncate text-start pe-2 text-[11px] text-muted-foreground font-mono">
                         {item.address}:{item.port}
                       </div>
 
-                      <div className="w-24 text-left overflow-hidden">
+                      <div className="w-24 text-start overflow-hidden">
                         {renderDelayCell(item)}
                       </div>
 
-                      <div className="w-32 text-left overflow-hidden">
+                      <div className="w-32 text-start overflow-hidden">
                         {renderCountryCell(item)}
                       </div>
 
-                      <div className="w-24 text-left font-mono h-full">
+                      <div className="w-24 text-start font-mono h-full">
                         {renderSpeedPair(item.downloadSpeed, item.uploadSpeed)}
                       </div>
 
-                      <div className="w-28 text-left h-full flex items-center">
+                      <div className="w-28 text-start h-full flex items-center">
                         {renderSitesCell(item)}
                       </div>
 
                       {settings.showTrafficStats && (
                         <>
-                          <div className="w-24 text-left font-mono h-full">
+                          <div className="w-24 text-start font-mono h-full">
                             {renderTraffic(
                               item.trafficToday?.tx || 0,
                               item.trafficToday?.rx || 0
                             )}
                           </div>
-                          <div className="w-24 text-left font-mono h-full">
+                          <div className="w-24 text-start font-mono h-full">
                             {renderTraffic(
                               item.trafficTotal?.tx || 0,
                               item.trafficTotal?.rx || 0
