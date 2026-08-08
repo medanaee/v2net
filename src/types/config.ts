@@ -72,4 +72,6 @@ export interface AppSettings {
   systemProxyMode: 'set' | 'clear' | 'dont_change';
   activeConfigId: string | null;
   showTrafficStats: boolean;
+  /** Once true, never show the secondary-sort tip toast again. */
+  hasSeenSecondarySortTip: boolean;
 }

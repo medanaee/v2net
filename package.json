@@ -30,6 +30,7 @@
     "i18next": "^26.3.6",
     "idb-keyval": "^6.3.0",
     "lucide-react": "^1.28.0",
+    "qrcode.react": "^4.2.0",
     "radix-ui": "^1.6.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

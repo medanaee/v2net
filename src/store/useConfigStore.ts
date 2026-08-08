@@ -548,6 +548,7 @@ export const useConfigStore = create<ConfigState>()(
     systemProxyMode: 'dont_change',
     activeConfigId: null,
     showTrafficStats: true,
+    hasSeenSecondarySortTip: false,
   },
 
   updateSettings: (newSettings) => {
@@ -603,6 +604,8 @@ export const useConfigStore = create<ConfigState>()(
             localPort: persistedState.settings?.localPort || 10900,
             systemProxyMode: persistedState.settings?.systemProxyMode || 'dont_change',
             showTrafficStats: persistedState.settings?.showTrafficStats ?? true,
+            hasSeenSecondarySortTip:
+              persistedState.settings?.hasSeenSecondarySortTip ?? false,
           },
         };
       },

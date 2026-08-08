@@ -68,6 +68,7 @@ const resources = {
       address: 'آدرس و پورت',
       ping: 'تاخیر',
       country: 'کشور',
+      speed: 'سرعت',
       download: 'دانلود',
       upload: 'آپلود',
       realDelayUrls: 'آدرس‌های سنجش تاخیر',
@@ -102,6 +103,13 @@ const resources = {
       showTrafficStats: 'نمایش مصرف ترافیک',
       showTrafficStatsDesc: 'ستون‌های مصرف امروز و کل را در جدول کانفیگ‌ها نمایش می‌دهد',
       hideToTray: 'پنهان کردن در System Tray',
+      secondarySortTip:
+        'نکته: با راست‌کلیک روی ستون دیگر می‌توانید مرتب‌سازی ثانویه تنظیم کنید (در صورت برابری ستون اول).',
+      secondarySortHint: 'راست‌کلیک: مرتب‌سازی ثانویه',
+      setAsActive: 'تنظیم به‌عنوان فعال',
+      share: 'اشتراک‌گذاری',
+      shareConfigDesc: 'اسکن کنید یا لینک کانفیگ را کپی کنید',
+      copied: 'کپی شد',
     },
   },
   en: {
@@ -170,6 +178,7 @@ const resources = {
       address: 'Address & Port',
       ping: 'Ping (ms)',
       country: 'Country',
+      speed: 'Speed',
       download: 'Download',
       upload: 'Upload',
       realDelayUrls: 'Real Delay Test URLs',
@@ -204,6 +213,13 @@ const resources = {
       showTrafficStats: 'Show Traffic Stats',
       showTrafficStatsDesc: 'Show today and total traffic usage columns in the table',
       hideToTray: 'Hide to System Tray',
+      secondarySortTip:
+        'Tip: right-click another column to set a secondary sort (used when primary values are equal).',
+      secondarySortHint: 'Right-click: secondary sort',
+      setAsActive: 'Set as active',
+      share: 'Share',
+      shareConfigDesc: 'Scan the QR code or copy the config link',
+      copied: 'Copied',
     },
   },
 };
