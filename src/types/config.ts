@@ -35,7 +35,9 @@ export interface ConfigItem {
   countryCode?: string | null;
   downloadSpeed?: number | null; // Bytes/sec or MB/s
   uploadSpeed?: number | null; // Bytes/sec or MB/s
-  
+  /** Site Test results: site id → ok / fail; missing key = untested */
+  siteResults?: Record<string, boolean | null>;
+
   // Traffic stats
   trafficToday?: { tx: number; rx: number; date: string };
   trafficTotal?: { tx: number; rx: number };
@@ -74,4 +76,6 @@ export interface AppSettings {
   showTrafficStats: boolean;
   /** Once true, never show the secondary-sort tip toast again. */
   hasSeenSecondarySortTip: boolean;
+  /** Selected site ids from SITE_CATALOG for Site Test (min 1). */
+  siteTestSelectedIds: string[];
 }

@@ -36,13 +36,20 @@ interface ConfigState {
   configs: ConfigItem[];
   activeTab: ConfigStatus;
   setActiveTab: (tab: ConfigStatus) => void;
+  /** Site filter (AND): show configs that pass every selected site id. Empty = no filter. */
+  siteFilterIds: string[];
+  setSiteFilterIds: (ids: string[]) => void;
+  toggleSiteFilter: (id: string) => void;
   selectedConfigIds: string[];
   lastSelectedId: string | null;
 
   addConfigsFromText: (rawText: string, targetGroupId?: string) => number;
   deleteSelectedConfigs: () => void;
   resetSelectedResults: () => void;
-  resetResultsForIds: (targetIds: string[], mode: 'realDelay' | 'speed' | 'hybrid') => void;
+  resetResultsForIds: (
+    targetIds: string[],
+    mode: 'realDelay' | 'speed' | 'hybrid' | 'siteTest'
+  ) => void;
 
   // Selection logic
   handleConfigClick: (
@@ -55,8 +62,8 @@ interface ConfigState {
   clearSelection: () => void;
 
   // Testing
-  testMode: 'realDelay' | 'speed' | 'hybrid';
-  setTestMode: (mode: 'realDelay' | 'speed' | 'hybrid') => void;
+  testMode: 'realDelay' | 'speed' | 'hybrid' | 'siteTest';
+  setTestMode: (mode: 'realDelay' | 'speed' | 'hybrid' | 'siteTest') => void;
   isTesting: boolean;
   setIsTesting: (testing: boolean) => void;
   testProgress: { tested: number; total: number; remaining: number };
@@ -69,6 +76,7 @@ interface ConfigState {
       downloadSpeed?: number | null;
       uploadSpeed?: number | null;
       countryCode?: string | null;
+      siteResults?: Record<string, boolean | null>;
     }
   ) => void;
   bulkUpdateTestResults: (
@@ -78,6 +86,7 @@ interface ConfigState {
       downloadSpeed?: number | null;
       uploadSpeed?: number | null;
       countryCode?: string | null;
+      siteResults?: Record<string, boolean | null>;
     }>
   ) => void;
   setConfigsCountry: (ids: string[], countryCode: string) => void;
@@ -245,6 +254,18 @@ export const useConfigStore = create<ConfigState>()(
     set({ activeTab: tab, selectedConfigIds: [], lastSelectedId: null });
   },
 
+  siteFilterIds: [],
+  setSiteFilterIds: (ids) => set({ siteFilterIds: ids }),
+  toggleSiteFilter: (id) =>
+    set((state) => {
+      const has = state.siteFilterIds.includes(id);
+      return {
+        siteFilterIds: has
+          ? state.siteFilterIds.filter((x) => x !== id)
+          : [...state.siteFilterIds, id],
+      };
+    }),
+
   selectedConfigIds: [],
   lastSelectedId: null,
 
@@ -307,7 +328,7 @@ export const useConfigStore = create<ConfigState>()(
     }));
   },
 
-  resetResultsForIds: (targetIds: string[], mode: 'realDelay' | 'speed' | 'hybrid') => {
+  resetResultsForIds: (targetIds, mode) => {
     const idsSet = new Set(targetIds);
     set((state) => ({
       configs: state.configs.map((c) => {
@@ -318,17 +339,22 @@ export const useConfigStore = create<ConfigState>()(
               downloadSpeed: null,
               uploadSpeed: null,
             };
-          } else {
+          }
+          if (mode === 'siteTest') {
             return {
               ...c,
-              status: 'untested' as ConfigStatus,
-              testStage: 0,
-              realDelay: null,
-              countryCode: null,
-              downloadSpeed: null,
-              uploadSpeed: null,
+              siteResults: undefined,
             };
           }
+          return {
+            ...c,
+            status: 'untested' as ConfigStatus,
+            testStage: 0,
+            realDelay: null,
+            countryCode: null,
+            downloadSpeed: null,
+            uploadSpeed: null,
+          };
         }
         return c;
       }),
@@ -388,7 +414,7 @@ export const useConfigStore = create<ConfigState>()(
   },
 
   testMode: 'realDelay',
-  setTestMode: (mode: 'realDelay' | 'speed' | 'hybrid') => set({ testMode: mode }),
+  setTestMode: (mode) => set({ testMode: mode }),
 
   isTesting: false,
   setIsTesting: (testing: boolean) => set({ isTesting: testing }),
@@ -432,6 +458,10 @@ export const useConfigStore = create<ConfigState>()(
               result.countryCode !== undefined && result.countryCode
                 ? result.countryCode.toUpperCase()
                 : c.countryCode,
+            siteResults:
+              result.siteResults !== undefined
+                ? { ...(c.siteResults || {}), ...result.siteResults }
+                : c.siteResults,
           };
         }
         return c;
@@ -459,7 +489,7 @@ export const useConfigStore = create<ConfigState>()(
             }
           }
 
-          if (result.status === 'disconnected') {
+          if (result.status === 'disconnected' && state.testMode !== 'siteTest') {
             nextTestStage = 0;
           }
 
@@ -476,6 +506,10 @@ export const useConfigStore = create<ConfigState>()(
               result.countryCode !== undefined && result.countryCode
                 ? result.countryCode.toUpperCase()
                 : c.countryCode,
+            siteResults:
+              result.siteResults !== undefined
+                ? { ...(c.siteResults || {}), ...result.siteResults }
+                : c.siteResults,
           };
         }
         return c;
@@ -549,6 +583,7 @@ export const useConfigStore = create<ConfigState>()(
     activeConfigId: null,
     showTrafficStats: true,
     hasSeenSecondarySortTip: false,
+    siteTestSelectedIds: ['gemini'],
   },
 
   updateSettings: (newSettings) => {
@@ -606,6 +641,11 @@ export const useConfigStore = create<ConfigState>()(
             showTrafficStats: persistedState.settings?.showTrafficStats ?? true,
             hasSeenSecondarySortTip:
               persistedState.settings?.hasSeenSecondarySortTip ?? false,
+            siteTestSelectedIds:
+              Array.isArray(persistedState.settings?.siteTestSelectedIds) &&
+              persistedState.settings.siteTestSelectedIds.length > 0
+                ? persistedState.settings.siteTestSelectedIds
+                : ['gemini'],
           },
         };
       },

@@ -10,7 +10,7 @@ pub mod xray_config;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use tauri::{AppHandle, Manager, WebviewWindow};
-use tester::{cancel_testing, run_batch_test, TestTarget};
+use tester::{cancel_testing, run_batch_test, SiteTarget, TestTarget};
 #[cfg(target_os = "windows")]
 use window_vibrancy::{apply_acrylic, clear_blur};
 
@@ -23,7 +23,9 @@ async fn start_batch_test(
     upload_url: String,
     test_mode: String,
     test_workers: usize,
+    site_targets: Option<Vec<SiteTarget>>,
 ) -> Result<(), String> {
+    let site_targets = site_targets.unwrap_or_default();
     tokio::spawn(async move {
         run_batch_test(
             app,
@@ -33,6 +35,7 @@ async fn start_batch_test(
             upload_url,
             test_mode,
             test_workers,
+            site_targets,
         )
         .await;
     });

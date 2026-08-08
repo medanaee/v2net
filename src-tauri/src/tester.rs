@@ -36,6 +36,18 @@ pub struct TestTarget {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SiteTarget {
+    pub id: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SiteCheckResult {
+    pub id: String,
+    pub ok: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestResultPayload {
     pub test_type: String,
     pub id: String,
@@ -45,6 +57,9 @@ pub struct TestResultPayload {
     pub upload_speed: Option<f64>,
     /// ISO country of the *exit IP* seen through this config's SOCKS proxy.
     pub country_code: Option<String>,
+    /// Per-site reachability for Site Test mode.
+    #[serde(default)]
+    pub site_results: Option<Vec<SiteCheckResult>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +97,7 @@ pub async fn run_batch_test(
     upload_url: String,
     test_mode: String,
     test_workers: usize,
+    site_targets: Vec<SiteTarget>,
 ) {
     IS_TESTING_CANCELLED.store(false, Ordering::Relaxed);
 
@@ -100,6 +116,7 @@ pub async fn run_batch_test(
     let speed_sem = Arc::new(Semaphore::new(1));
     let temp_dir = std::env::temp_dir().join("v2ray_test_configs");
     let _ = std::fs::create_dir_all(&temp_dir);
+    let site_targets = Arc::new(site_targets);
 
     let chunks: Vec<Vec<TestTarget>> = targets.chunks(20).map(|c| c.to_vec()).collect();
     let mut handles = Vec::new();
@@ -118,6 +135,7 @@ pub async fn run_batch_test(
         let sem_clone = semaphore.clone();
         let speed_sem_clone = speed_sem.clone();
         let temp_folder = temp_dir.clone();
+        let sites_clone = site_targets.clone();
 
         let handle = tokio::spawn(async move {
             test_target_group(
@@ -132,6 +150,7 @@ pub async fn run_batch_test(
                 sem_clone,
                 speed_sem_clone,
                 temp_folder,
+                sites_clone,
             )
             .await;
         });
@@ -156,6 +175,7 @@ fn test_target_group<'a>(
     semaphore: Arc<Semaphore>,
     speed_sem: Arc<Semaphore>,
     temp_folder: std::path::PathBuf,
+    site_targets: Arc<Vec<SiteTarget>>,
 ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
     Box::pin(async move {
         if IS_TESTING_CANCELLED.load(Ordering::Relaxed) || targets.is_empty() {
@@ -257,10 +277,12 @@ fn test_target_group<'a>(
                     let sem = semaphore.clone();
                     let speed = speed_sem.clone();
                     let tmp = temp_folder.clone();
+                    let sites = site_targets.clone();
                     let left = left.to_vec();
                     async move {
                         test_target_group(
                             app, left, t_url, d_url, u_url, t_mode, tested, total, sem, speed, tmp,
+                            sites,
                         )
                         .await;
                     }
@@ -276,10 +298,12 @@ fn test_target_group<'a>(
                     let sem = semaphore.clone();
                     let speed = speed_sem.clone();
                     let tmp = temp_folder.clone();
+                    let sites = site_targets.clone();
                     let right = right.to_vec();
                     async move {
                         test_target_group(
                             app, right, t_url, d_url, u_url, t_mode, tested, total, sem, speed, tmp,
+                            sites,
                         )
                         .await;
                     }
@@ -298,14 +322,37 @@ fn test_target_group<'a>(
                     }),
                 );
 
-                let result = TestResultPayload {
-                    id: target.id.clone(),
-                    test_type: test_mode.clone(),
-                    status: Some("disconnected".to_string()),
-                    real_delay: None,
-                    download_speed: None,
-                    upload_speed: None,
-                    country_code: None,
+                let result = if test_mode == "siteTest" {
+                    // In-place like speed: do not move tabs on Xray crash.
+                    TestResultPayload {
+                        id: target.id.clone(),
+                        test_type: test_mode.clone(),
+                        status: None,
+                        real_delay: None,
+                        download_speed: None,
+                        upload_speed: None,
+                        country_code: None,
+                        site_results: Some(
+                            site_targets
+                                .iter()
+                                .map(|s| SiteCheckResult {
+                                    id: s.id.clone(),
+                                    ok: false,
+                                })
+                                .collect(),
+                        ),
+                    }
+                } else {
+                    TestResultPayload {
+                        id: target.id.clone(),
+                        test_type: test_mode.clone(),
+                        status: Some("disconnected".to_string()),
+                        real_delay: None,
+                        download_speed: None,
+                        upload_speed: None,
+                        country_code: None,
+                        site_results: None,
+                    }
                 };
                 let _ = app.emit("test-result", &result);
 
@@ -334,23 +381,52 @@ fn test_target_group<'a>(
             let mode_c = test_mode.clone();
             let speed_sem_c = speed_sem.clone();
             let t_cnt = tested_cnt.clone();
+            let sites_c = site_targets.clone();
 
             let handle = tokio::spawn(async move {
-                let mut result = TestResultPayload {
-                    id: t.id.clone(),
-                    test_type: mode_c.clone(),
-                    status: Some("disconnected".to_string()),
-                    real_delay: None,
-                    download_speed: None,
-                    upload_speed: None,
-                    country_code: None,
+                let mut result = if mode_c == "siteTest" {
+                    TestResultPayload {
+                        id: t.id.clone(),
+                        test_type: mode_c.clone(),
+                        status: None,
+                        real_delay: None,
+                        download_speed: None,
+                        upload_speed: None,
+                        country_code: None,
+                        site_results: Some(
+                            sites_c
+                                .iter()
+                                .map(|s| SiteCheckResult {
+                                    id: s.id.clone(),
+                                    ok: false,
+                                })
+                                .collect(),
+                        ),
+                    }
+                } else {
+                    TestResultPayload {
+                        id: t.id.clone(),
+                        test_type: mode_c.clone(),
+                        status: if mode_c == "speed" {
+                            None
+                        } else {
+                            Some("disconnected".to_string())
+                        },
+                        real_delay: None,
+                        download_speed: None,
+                        upload_speed: None,
+                        country_code: None,
+                        site_results: None,
+                    }
                 };
 
                 let proxy_url = format!("socks5h://127.0.0.1:{}", port);
+                // Site Test: up to 18s to collect whatever HTML arrived.
+                let timeout_ms = if mode_c == "siteTest" { 18_000 } else { 5_000 };
                 if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
                     if let Ok(client) = reqwest::Client::builder()
                         .proxy(proxy)
-                        .timeout(std::time::Duration::from_millis(5000))
+                        .timeout(std::time::Duration::from_millis(timeout_ms))
                         .danger_accept_invalid_certs(true)
                         .build()
                     {
@@ -376,6 +452,8 @@ fn test_target_group<'a>(
                                 speed_sem_c.clone(),
                             )
                             .await;
+                        } else if mode_c == "siteTest" {
+                            result = perform_site_test(&t, &client, sites_c.as_slice()).await;
                         } else {
                             result = perform_latency_test(&t, &client, &t_url).await;
                         }
@@ -432,6 +510,7 @@ async fn perform_latency_test(
                 download_speed: None,
                 upload_speed: None,
                 country_code,
+                site_results: None,
             }
         }
         _ => TestResultPayload {
@@ -442,7 +521,140 @@ async fn perform_latency_test(
             download_speed: None,
             upload_speed: None,
             country_code: None,
+            site_results: None,
         },
+    }
+}
+
+fn looks_like_soft_block(body: &str) -> bool {
+    let b = body.to_lowercase();
+    // Normalize Arabic Yeh / common variants for Iranian block pages.
+    let b = b.replace('\u{064a}', "ی").replace('\u{0649}', "ی");
+    const PATTERNS: &[&str] = &[
+        "access denied",
+        "access is denied",
+        "not available in your country",
+        "is not available in your country",
+        "your request has been blocked",
+        "this site can’t be reached",
+        "this site can't be reached",
+        "not supported",
+        "is not supported",
+        "در دسترس نیست",
+        "سایت مورد نظر در دسترس",
+        "این سایت در دسترس نیست",
+        "پشتیبانی نمی شود",
+        "پشتیبانی نمی‌شود",
+        "پشتیبانی نمیشود",
+        "قابلیت پشتیبانی ندارد",
+        "web filter",
+        "filtered by",
+    ];
+    PATTERNS.iter().any(|p| b.contains(p))
+}
+
+/// Collect body for up to 18s, then decide:
+/// - 403/block status → fail
+/// - soft-block phrases in HTML → fail
+/// - any content loaded otherwise → success
+/// - nothing loaded → fail
+async fn check_site_through_proxy(client: &reqwest::Client, url: &str) -> bool {
+    let resp = match client.get(url).send().await {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+
+    let code = resp.status().as_u16();
+    if matches!(code, 401 | 403 | 407 | 451) {
+        return false;
+    }
+    if !(resp.status().is_success() || resp.status().is_redirection()) {
+        return false;
+    }
+
+    let mut stream = resp.bytes_stream();
+    let mut buf: Vec<u8> = Vec::with_capacity(16_384);
+    let deadline = Instant::now() + std::time::Duration::from_secs(18);
+
+    loop {
+        if Instant::now() >= deadline {
+            break;
+        }
+        let wait = deadline.saturating_duration_since(Instant::now());
+        if wait.is_zero() {
+            break;
+        }
+
+        match tokio::time::timeout(wait, stream.next()).await {
+            Ok(Some(Ok(chunk))) => {
+                buf.extend_from_slice(&chunk);
+                // Cap buffer; we only need enough to detect block phrases.
+                if buf.len() > 65_536 {
+                    buf.truncate(65_536);
+                    break;
+                }
+                let sample = String::from_utf8_lossy(&buf);
+                if looks_like_soft_block(&sample) {
+                    return false;
+                }
+            }
+            Ok(Some(Err(_))) => break,
+            Ok(None) => break, // EOF — page finished early
+            Err(_) => break,   // 18s reached
+        }
+    }
+
+    if buf.is_empty() {
+        return false;
+    }
+    let sample = String::from_utf8_lossy(&buf);
+    if looks_like_soft_block(&sample) {
+        return false;
+    }
+    true
+}
+
+async fn perform_site_test(
+    target: &TestTarget,
+    client: &reqwest::Client,
+    sites: &[SiteTarget],
+) -> TestResultPayload {
+    // Like speed test: never touch status / delay / speeds — only site_results.
+    if sites.is_empty() {
+        return TestResultPayload {
+            id: target.id.clone(),
+            test_type: "siteTest".to_string(),
+            status: None,
+            real_delay: None,
+            download_speed: None,
+            upload_speed: None,
+            country_code: None,
+            site_results: Some(vec![]),
+        };
+    }
+
+    let mut futs = Vec::with_capacity(sites.len());
+    for site in sites {
+        let client = client.clone();
+        let id = site.id.clone();
+        let url = site.url.clone();
+        futs.push(async move {
+            let ok = check_site_through_proxy(&client, &url).await;
+            SiteCheckResult { id, ok }
+        });
+    }
+
+    let site_results = futures_util::future::join_all(futs).await;
+
+    TestResultPayload {
+        id: target.id.clone(),
+        test_type: "siteTest".to_string(),
+        status: None,
+        real_delay: None,
+        download_speed: None,
+        upload_speed: None,
+        country_code: None,
+        site_results: Some(site_results),
     }
 }
 
@@ -491,6 +703,7 @@ async fn perform_speed_test(
                         download_speed: Some(final_dl),
                         upload_speed: Some(final_dl * 0.4),
                         country_code: None,
+                        site_results: None,
                     };
                     let _ = app_handle.emit("test-result", &partial);
                     last_emit = Instant::now();
@@ -518,6 +731,7 @@ async fn perform_speed_test(
         download_speed: Some(final_dl),
         upload_speed: Some(final_dl * 0.4),
         country_code: None,
+        site_results: None,
     }
 }
 
@@ -543,6 +757,7 @@ async fn perform_hybrid_test(
         download_speed: None,
         upload_speed: None,
         country_code: latency_res.country_code,
+        site_results: None,
     };
     let _ = app_handle.emit("test-result", &current_res);
 

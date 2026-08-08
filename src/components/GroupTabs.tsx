@@ -10,9 +10,21 @@ import {
   Trash2,
   RotateCcw,
   Search,
+  Globe2,
+  ChevronDown,
 } from 'lucide-react';
 import { useConfigStore } from '../store/useConfigStore';
 import { Button } from './ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuItem,
+} from './ui/dropdown-menu';
+import { SITE_CATALOG } from '../lib/siteCatalog';
 
 interface GroupTabsProps {
   searchQuery: string;
@@ -31,6 +43,9 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
     deleteSelectedConfigs,
     resetSelectedResults,
     isGroupSubscription,
+    siteFilterIds,
+    toggleSiteFilter,
+    setSiteFilterIds,
   } = useConfigStore();
 
   const [notification, setNotification] = useState<string | null>(null);
@@ -82,7 +97,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
       <div className="flex items-center gap-1">
         <button
           onClick={() => setActiveTab('untested')}
-          className={`h-8 px-3 flex items-center gap-1.5 font-medium border-b-2 transition-colors cursor-pointer ${
+          className={`h-8 px-3 flex items-center gap-1.5 font-medium rounded-md border-b-2 transition-colors cursor-pointer ${
             activeTab === 'untested'
               ? 'border-blue-500 text-blue-500 bg-muted'
               : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -97,7 +112,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
 
         <button
           onClick={() => setActiveTab('disconnected')}
-          className={`h-8 px-3 flex items-center gap-1.5 font-medium border-b-2 transition-colors cursor-pointer ${
+          className={`h-8 px-3 flex items-center gap-1.5 font-medium rounded-md border-b-2 transition-colors cursor-pointer ${
             activeTab === 'disconnected'
               ? 'border-red-500 text-red-500 bg-muted'
               : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -112,7 +127,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
 
         <button
           onClick={() => setActiveTab('working')}
-          className={`h-8 px-3 flex items-center gap-1.5 font-medium border-b-2 transition-colors cursor-pointer ${
+          className={`h-8 px-3 flex items-center gap-1.5 font-medium rounded-md border-b-2 transition-colors cursor-pointer ${
             activeTab === 'working'
               ? 'border-emerald-500 text-emerald-500 bg-muted'
               : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -128,6 +143,62 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
 
       {/* Controls & Search */}
       <div className="flex items-center gap-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className={`h-7 gap-1 px-2 text-[11px] ${
+                siteFilterIds.length > 0
+                  ? 'border-sky-500/50 text-sky-600 dark:text-sky-400'
+                  : ''
+              }`}
+            >
+              <Globe2 className="w-3.5 h-3.5" />
+              <span>{t('filterBySites')}</span>
+              {siteFilterIds.length > 0 && (
+                <span className="rounded-full bg-sky-500/15 px-1.5 text-[10px] font-bold">
+                  {siteFilterIds.length}
+                </span>
+              )}
+              <ChevronDown className="w-3 h-3 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-52">
+            <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
+              {t('filterBySitesDesc')}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {SITE_CATALOG.map((site) => {
+              const Icon = site.Icon;
+              const checked = siteFilterIds.includes(site.id);
+              return (
+                <DropdownMenuCheckboxItem
+                  key={site.id}
+                  checked={checked}
+                  onCheckedChange={() => toggleSiteFilter(site.id)}
+                  onSelect={(e) => e.preventDefault()}
+                  className="gap-2 text-xs"
+                >
+                  <Icon className="size-3.5 text-sky-500" />
+                  {t(site.nameKey)}
+                </DropdownMenuCheckboxItem>
+              );
+            })}
+            {siteFilterIds.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-xs text-muted-foreground"
+                  onSelect={() => setSiteFilterIds([])}
+                >
+                  {t('clearSiteFilter')}
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <div className="relative w-44">
           <input
             type="text"

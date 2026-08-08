@@ -16,6 +16,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { CountryFlag } from './CountryFlag';
 import { countryDisplayName } from '../lib/country';
 import { ShareConfigDialog } from './ShareConfigDialog';
+import { resolveSelectedSites } from '../lib/siteCatalog';
 
 interface ConfigTableProps {
   searchQuery: string;
@@ -35,9 +36,14 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     settings,
     updateSettings,
     isGroupSubscription,
+    siteFilterIds,
   } = useConfigStore();
 
   const isSubscription = isGroupSubscription(activeGroupId);
+  const selectedSites = useMemo(
+    () => resolveSelectedSites(settings.siteTestSelectedIds),
+    [settings.siteTestSelectedIds]
+  );
 
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -161,6 +167,13 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     let items = configs.filter((c) => {
       if (c.groupId !== activeGroupId) return false;
       if (c.status !== activeTab) return false;
+
+      // AND filter: must succeed for every selected site
+      if (siteFilterIds.length > 0) {
+        const allOk = siteFilterIds.every((id) => c.siteResults?.[id] === true);
+        if (!allOk) return false;
+      }
+
       if (!query) return true;
 
       const countryLabel = c.countryCode
@@ -194,6 +207,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     activeGroupId,
     activeTab,
     searchQuery,
+    siteFilterIds,
     sortColumn,
     sortDirection,
     secondarySortColumn,
@@ -351,6 +365,36 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     );
   };
 
+  const renderSitesCell = (item: ConfigItem) => {
+    const results = item.siteResults;
+    // No site test run yet → dash only (no faded icons)
+    if (!results || Object.keys(results).length === 0 || selectedSites.length === 0) {
+      return <span className="text-muted-foreground/70">-</span>;
+    }
+    return (
+      <div className="flex items-center gap-1 h-full">
+        {selectedSites.map((site) => {
+          const Icon = site.Icon;
+          const ok = results[site.id] === true;
+          const name = t(site.nameKey);
+          return (
+            <span
+              key={site.id}
+              title={`${name}: ${ok ? t('siteOk') : t('siteFail')}`}
+              className={`inline-flex items-center justify-center size-5 rounded transition-opacity ${
+                ok
+                  ? 'text-sky-500 opacity-100'
+                  : 'text-muted-foreground opacity-25 grayscale'
+              }`}
+            >
+              <Icon className="size-3.5" />
+            </span>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
       {/* Table Header */}
@@ -401,6 +445,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
           {t('speed')}
           {renderSortIcon('speed')}
         </div>
+        <div className="w-28 text-left">{t('sites')}</div>
         {settings.showTrafficStats && (
           <>
             <div className="w-24 text-left">{t('todayUsage')}</div>
@@ -501,6 +546,10 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
 
                       <div className="w-24 text-left font-mono h-full">
                         {renderSpeedPair(item.downloadSpeed, item.uploadSpeed)}
+                      </div>
+
+                      <div className="w-28 text-left h-full flex items-center">
+                        {renderSitesCell(item)}
                       </div>
 
                       {settings.showTrafficStats && (

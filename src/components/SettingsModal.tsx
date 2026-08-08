@@ -27,6 +27,7 @@ import { Checkbox } from './ui/checkbox';
 import { NumberInput } from './ui/number-input';
 import { SimpleNumberInput } from './ui/simple-number-input';
 import { GroupEditorDialog } from './GroupEditorDialog';
+import { SITE_CATALOG } from '../lib/siteCatalog';
 
 
 const SettingCard: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
@@ -579,6 +580,54 @@ export const SettingsModal: React.FC = () => {
                     <span>{t('add')}</span>
                   </Button>
                 </form>
+              </SettingCard>
+
+              {/* Site Test catalog picker */}
+              <SettingCard className="space-y-3">
+                <div className="space-y-0.5 text-start">
+                  <span className="font-semibold text-xs">{t('siteTestSettings')}</span>
+                  <p className="text-[11px] text-muted-foreground/70">{t('siteTestSettingsDesc')}</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {SITE_CATALOG.map((site) => {
+                    const selected = settings.siteTestSelectedIds ?? ['gemini'];
+                    const checked = selected.includes(site.id);
+                    const Icon = site.Icon;
+                    return (
+                      <label
+                        key={site.id}
+                        className={`flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                          checked
+                            ? 'border-blue-500/50 bg-blue-500/5'
+                            : 'border-border/50 bg-muted/40 hover:bg-muted/60'
+                        }`}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(val) => {
+                            const on = !!val;
+                            const prev = settings.siteTestSelectedIds ?? ['gemini'];
+                            let next: string[];
+                            if (on) {
+                              next = prev.includes(site.id) ? prev : [...prev, site.id];
+                            } else {
+                              next = prev.filter((id) => id !== site.id);
+                              if (next.length === 0) {
+                                // Keep at least one site selected
+                                return;
+                              }
+                            }
+                            updateSettings({ siteTestSelectedIds: next });
+                          }}
+                        />
+                        <span className="inline-flex items-center justify-center size-7 rounded-md bg-background/80 text-sky-500">
+                          <Icon className="size-4" />
+                        </span>
+                        <span className="text-xs font-medium">{t(site.nameKey)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               </SettingCard>
 
               {/* Speed Test URLs */}

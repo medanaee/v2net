@@ -2,11 +2,17 @@ import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Play, Square, Activity, Gauge, Zap } from 'lucide-react';
+import { Play, Square, Activity, Gauge, Zap, Globe2 } from 'lucide-react';
 import { useConfigStore } from '../store/useConfigStore';
 import { Button } from './ui/button';
+import { resolveSelectedSites } from '../lib/siteCatalog';
 
-const startBatchTestToRust = async (targets: any[], settings: any, testMode: string, setIsTesting: any) => {
+const startBatchTestToRust = async (
+  targets: any[],
+  settings: any,
+  testMode: string,
+  setIsTesting: any
+) => {
   const rustTargets = targets.map((c: any) => ({
     id: c.id,
     address: c.address,
@@ -32,6 +38,14 @@ const startBatchTestToRust = async (targets: any[], settings: any, testMode: str
     extra: c.extra,
   }));
 
+  const siteTargets =
+    testMode === 'siteTest'
+      ? resolveSelectedSites(settings.siteTestSelectedIds).map((s) => ({
+          id: s.id,
+          url: s.checkUrl,
+        }))
+      : [];
+
   try {
     await invoke('start_batch_test', {
       targets: rustTargets,
@@ -40,6 +54,7 @@ const startBatchTestToRust = async (targets: any[], settings: any, testMode: str
       uploadUrl: settings.testUrls.uploadUrl,
       testMode: testMode,
       testWorkers: settings.testWorkers,
+      siteTargets,
     });
   } catch (err) {
     console.error(err);
@@ -76,7 +91,7 @@ export const TestingBar: React.FC = () => {
         resultBuffer.current = {};
         useConfigStore.getState().bulkUpdateTestResults(batch);
       }
-      
+
       if (progressBuffer.current) {
         const payload = progressBuffer.current;
         setTestProgress({
@@ -90,10 +105,17 @@ export const TestingBar: React.FC = () => {
           if (state.settings.multiStageTesting && state.testMode === 'realDelay') {
             const maxStages = state.settings.multiStageCount || 3;
             if (currentStage.current < maxStages) {
-              const passedConfigs = state.configs.filter(c => c.testStage === currentStage.current);
+              const passedConfigs = state.configs.filter(
+                (c) => c.testStage === currentStage.current
+              );
               if (passedConfigs.length > 0) {
                 currentStage.current += 1;
-                startBatchTestToRust(passedConfigs, state.settings, state.testMode, setIsTesting);
+                startBatchTestToRust(
+                  passedConfigs,
+                  state.settings,
+                  state.testMode,
+                  setIsTesting
+                );
                 progressBuffer.current = null;
                 return;
               }
@@ -110,6 +132,19 @@ export const TestingBar: React.FC = () => {
       unlistenResult = await listen('test-result', (event: any) => {
         const payload = event.payload;
         if (payload && payload.id) {
+          // Site Test is in-place like speed: only siteResults, never status/tabs/other fields.
+          if (payload.test_type === 'siteTest') {
+            const siteResults: Record<string, boolean> | undefined = Array.isArray(
+              payload.site_results
+            )
+              ? Object.fromEntries(
+                  payload.site_results.map((r: { id: string; ok: boolean }) => [r.id, r.ok])
+                )
+              : undefined;
+            resultBuffer.current[payload.id] = { siteResults };
+            return;
+          }
+
           resultBuffer.current[payload.id] = {
             status: payload.status,
             realDelay: payload.test_type === 'speed' ? undefined : payload.real_delay,
@@ -149,7 +184,7 @@ export const TestingBar: React.FC = () => {
 
   const handleStartTest = async () => {
     let targets = configs.filter((c) => c.groupId === activeGroupId);
-    
+
     const { selectedConfigIds } = useConfigStore.getState();
     if (selectedConfigIds && selectedConfigIds.length > 0) {
       targets = targets.filter((c) => selectedConfigIds.includes(c.id));
@@ -159,9 +194,17 @@ export const TestingBar: React.FC = () => {
 
     if (targets.length === 0) return;
 
-    resetResultsForIds(targets.map(c => c.id), testMode);
-
     const state = useConfigStore.getState();
+    if (testMode === 'siteTest') {
+      const sites = resolveSelectedSites(state.settings.siteTestSelectedIds);
+      if (sites.length === 0) return;
+    }
+
+    resetResultsForIds(
+      targets.map((c) => c.id),
+      testMode
+    );
+
     if (state.settings.multiStageTesting && testMode === 'realDelay') {
       currentStage.current = 1;
     }
@@ -186,48 +229,33 @@ export const TestingBar: React.FC = () => {
       ? Math.min(100, Math.round((testProgress.tested / testProgress.total) * 100))
       : 0;
 
+  const modeBtn = (
+    mode: 'realDelay' | 'speed' | 'hybrid' | 'siteTest',
+    icon: React.ReactNode,
+    label: string
+  ) => (
+    <button
+      onClick={() => setTestMode(mode)}
+      disabled={isTesting}
+      className={`h-7 px-2.5 flex items-center gap-1 rounded text-xs font-medium cursor-pointer transition-colors ${
+        testMode === mode
+          ? 'bg-blue-600 text-white shadow-sm'
+          : 'text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+
   return (
     <div className="h-12 border-t flex items-center justify-between px-2 bg-transparent border-border/50 text-xs select-none shrink-0">
       <div className="flex items-center gap-2">
         <div className="flex items-center bg-muted/50 border border-border/50 rounded-md p-0.5">
-          <button
-            onClick={() => setTestMode('realDelay')}
-            disabled={isTesting}
-            className={`h-7 px-2.5 flex items-center gap-1 rounded text-xs font-medium cursor-pointer transition-colors ${
-              testMode === 'realDelay'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Activity className="w-3.5 h-3.5" />
-            <span>{t('realDelayTest')}</span>
-          </button>
-
-          <button
-            onClick={() => setTestMode('speed')}
-            disabled={isTesting}
-            className={`h-7 px-2.5 flex items-center gap-1 rounded text-xs font-medium cursor-pointer transition-colors ${
-              testMode === 'speed'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Gauge className="w-3.5 h-3.5" />
-            <span>{t('speedTest')}</span>
-          </button>
-
-          <button
-            onClick={() => setTestMode('hybrid')}
-            disabled={isTesting}
-            className={`h-7 px-2.5 flex items-center gap-1 rounded text-xs font-medium cursor-pointer transition-colors ${
-              testMode === 'hybrid'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5" />
-            <span>Hybrid</span>
-          </button>
+          {modeBtn('realDelay', <Activity className="w-3.5 h-3.5" />, t('realDelayTest'))}
+          {modeBtn('speed', <Gauge className="w-3.5 h-3.5" />, t('speedTest'))}
+          {modeBtn('hybrid', <Zap className="w-3.5 h-3.5" />, t('hybridTest'))}
+          {modeBtn('siteTest', <Globe2 className="w-3.5 h-3.5" />, t('siteTest'))}
         </div>
 
         {isTesting ? (
@@ -265,7 +293,8 @@ export const TestingBar: React.FC = () => {
           </div>
           <div className="h-3 w-[1px] bg-border" />
           <div>
-            {t('remaining')}: <span className="text-amber-400 font-bold">{testProgress.remaining}</span>
+            {t('remaining')}:{' '}
+            <span className="text-amber-400 font-bold">{testProgress.remaining}</span>
           </div>
           <div className="h-3 w-[1px] bg-border" />
           <div>
