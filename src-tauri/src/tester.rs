@@ -488,41 +488,58 @@ fn test_target_group<'a>(
     })
 }
 
+fn latency_disconnected(target: &TestTarget) -> TestResultPayload {
+    TestResultPayload {
+        id: target.id.clone(),
+        test_type: "realDelay".to_string(),
+        status: Some("disconnected".to_string()),
+        real_delay: None,
+        download_speed: None,
+        upload_speed: None,
+        country_code: None,
+        site_results: None,
+    }
+}
+
+/// v2rayN-style Real Ping: two GETs on the same client, 100ms gap, report min sample.
 async fn perform_latency_test(
     target: &TestTarget,
     client: &reqwest::Client,
     test_url: &str,
 ) -> TestResultPayload {
-    let start = Instant::now();
-
-    match client.get(test_url).send().await {
-        Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 204 => {
-            let delay = start.elapsed().as_millis() as i64;
-            // Exit country through the same SOCKS client (real egress, not server address).
-            let country_code = crate::geoip::lookup_exit_country(client)
-                .await
-                .map(|c| c.code);
-            TestResultPayload {
-                id: target.id.clone(),
-                test_type: "realDelay".to_string(),
-                status: Some("working".to_string()),
-                real_delay: Some(delay),
-                download_speed: None,
-                upload_speed: None,
-                country_code,
-                site_results: None,
+    let mut samples: Vec<i64> = Vec::with_capacity(2);
+    for _ in 0..2 {
+        let start = Instant::now();
+        match client.get(test_url).send().await {
+            Ok(_resp) => {
+                let ms = start.elapsed().as_millis() as i64;
+                if ms > 0 {
+                    samples.push(ms);
+                }
             }
+            // Same as v2rayN outer catch: any probe error fails the whole ping.
+            Err(_) => return latency_disconnected(target),
         }
-        _ => TestResultPayload {
-            id: target.id.clone(),
-            test_type: "realDelay".to_string(),
-            status: Some("disconnected".to_string()),
-            real_delay: None,
-            download_speed: None,
-            upload_speed: None,
-            country_code: None,
-            site_results: None,
-        },
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    let Some(delay) = samples.into_iter().min() else {
+        return latency_disconnected(target);
+    };
+
+    // Exit country through the same SOCKS client (after delay is fixed; not timed).
+    let country_code = crate::geoip::lookup_exit_country(client)
+        .await
+        .map(|c| c.code);
+    TestResultPayload {
+        id: target.id.clone(),
+        test_type: "realDelay".to_string(),
+        status: Some("working".to_string()),
+        real_delay: Some(delay),
+        download_speed: None,
+        upload_speed: None,
+        country_code,
+        site_results: None,
     }
 }
 
