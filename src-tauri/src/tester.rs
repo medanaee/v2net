@@ -229,7 +229,9 @@ fn test_target_group<'a>(
 
             if is_exited {
                 crashed = true;
+                let pid = child.pid();
                 let _ = child.kill();
+                crate::untrack_pid(pid);
             } else {
                 child_proc = Some((child, rx_handle));
             }
@@ -401,7 +403,9 @@ fn test_target_group<'a>(
         }
 
         if let Some((child, _rx_handle)) = child_proc {
+            let pid = child.pid();
             let _ = child.kill();
+            crate::untrack_pid(pid);
         }
     })
 }

@@ -88,6 +88,7 @@ pub fn force_kill_all_sidecars() {
         if let Some(child) = g.take() {
             let pid = child.pid();
             let _ = child.kill();
+            crate::untrack_pid(pid);
             #[cfg(target_os = "windows")]
             force_kill_pid(pid);
             #[cfg(unix)]
@@ -144,6 +145,7 @@ async fn stop_xray_only() {
         guard.take().map(|child| {
             let pid = child.pid();
             let _ = child.kill();
+            crate::untrack_pid(pid);
             pid
         })
     };
@@ -234,11 +236,13 @@ fn stop_linux_sudo_core() {
             kill_linux_sudo_process_tree(pid);
             let _ = child.kill();
             let _ = child.wait();
+            crate::untrack_pid(pid);
         }
     }
     if let Ok(mut pid_guard) = LINUX_SUDO_PID.lock() {
         if let Some(pid) = pid_guard.take() {
             kill_linux_sudo_process_tree(pid);
+            crate::untrack_pid(pid);
         }
     }
     // Keep LINUX_SUDO_PWD for the session (v2rayN keeps LinuxSudoPwd in memory).

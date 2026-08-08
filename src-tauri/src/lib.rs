@@ -97,6 +97,13 @@ pub fn track_pid(pid: u32) {
     }
 }
 
+/// Drop a PID once its process was already stopped (e.g. batch-test Xray exited).
+pub fn untrack_pid(pid: u32) {
+    if let Ok(mut pids) = SPAWNED_PIDS.lock() {
+        pids.retain(|&p| p != pid);
+    }
+}
+
 /// Force-kill every tracked sidecar PID (waits for each kill).
 pub fn kill_tracked_pids() {
     let pids = {
