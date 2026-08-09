@@ -4,22 +4,21 @@ import { GeminiIcon } from '../components/icons/GeminiIcon';
 export type SiteIconProps = SVGProps<SVGSVGElement>;
 
 export type SiteDef = {
+  /** Stable key sent to Rust; probe logic lives in the backend per id. */
   id: string;
   nameKey: string;
-  checkUrl: string;
   Icon: ComponentType<SiteIconProps>;
 };
 
 /**
  * Fixed catalog of sites Site Test can check.
- * To add a site later: append one entry + icon component + i18n key.
- * Settings, table column, and Rust invoke all consume this list generically.
+ * To add a site later: append one entry + icon + i18n key, and add a match arm in Rust.
+ * Settings, table column, and invoke all consume this list generically.
  */
 export const SITE_CATALOG: SiteDef[] = [
   {
     id: 'gemini',
     nameKey: 'siteGemini',
-    checkUrl: 'https://gemini.google.com/',
     Icon: GeminiIcon,
   },
 ];

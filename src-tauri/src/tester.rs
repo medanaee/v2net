@@ -37,9 +37,12 @@ pub struct TestTarget {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SiteTarget {
+    /// Catalog site key (e.g. "gemini"). Probe logic lives in Rust per id.
     pub id: String,
-    pub url: String,
 }
+
+/// Disposable AI Studio key for Gemini models-list probe (list-only, no billed generate).
+const GEMINI_API_KEY: &str = "AQ.Ab8RN6Ldjauh8VnAlWD9sgNxWB_Ty2HcaCngVJzWSH9WPNld-Q";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SiteCheckResult {
@@ -421,8 +424,8 @@ fn test_target_group<'a>(
                 };
 
                 let proxy_url = format!("socks5h://127.0.0.1:{}", port);
-                // Site Test: up to 18s to collect whatever HTML arrived.
-                let timeout_ms = if mode_c == "siteTest" { 18_000 } else { 5_000 };
+                // Site Test: short API probes (e.g. Gemini models list).
+                let timeout_ms = if mode_c == "siteTest" { 4_000 } else { 5_000 };
                 if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
                     if let Ok(client) = reqwest::Client::builder()
                         .proxy(proxy)
@@ -543,92 +546,39 @@ async fn perform_latency_test(
     }
 }
 
-fn looks_like_soft_block(body: &str) -> bool {
-    let b = body.to_lowercase();
-    // Normalize Arabic Yeh / common variants for Iranian block pages.
-    let b = b.replace('\u{064a}', "ی").replace('\u{0649}', "ی");
-    const PATTERNS: &[&str] = &[
-        "access denied",
-        "access is denied",
-        "not available in your country",
-        "is not available in your country",
-        "your request has been blocked",
-        "this site can’t be reached",
-        "this site can't be reached",
-        "not supported",
-        "is not supported",
-        "در دسترس نیست",
-        "سایت مورد نظر در دسترس",
-        "این سایت در دسترس نیست",
-        "پشتیبانی نمی شود",
-        "پشتیبانی نمی‌شود",
-        "پشتیبانی نمیشود",
-        "قابلیت پشتیبانی ندارد",
-        "web filter",
-        "filtered by",
-    ];
-    PATTERNS.iter().any(|p| b.contains(p))
-}
-
-/// Collect body for up to 18s, then decide:
-/// - 403/block status → fail
-/// - soft-block phrases in HTML → fail
-/// - any content loaded otherwise → success
-/// - nothing loaded → fail
-async fn check_site_through_proxy(client: &reqwest::Client, url: &str) -> bool {
+/// One Gemini models-list probe. 200 + models JSON → true.
+async fn check_gemini_once(client: &reqwest::Client, url: &str) -> bool {
     let resp = match client.get(url).send().await {
         Ok(r) => r,
         Err(_) => return false,
     };
-
-    let code = resp.status().as_u16();
-    if matches!(code, 401 | 403 | 407 | 451) {
+    if resp.status().as_u16() != 200 {
         return false;
     }
-    if !(resp.status().is_success() || resp.status().is_redirection()) {
-        return false;
+    match resp.text().await {
+        Ok(body) => body.contains("\"models\""),
+        Err(_) => false,
     }
+}
 
-    let mut stream = resp.bytes_stream();
-    let mut buf: Vec<u8> = Vec::with_capacity(16_384);
-    let deadline = Instant::now() + std::time::Duration::from_secs(18);
-
-    loop {
-        if Instant::now() >= deadline {
-            break;
-        }
-        let wait = deadline.saturating_duration_since(Instant::now());
-        if wait.is_zero() {
-            break;
-        }
-
-        match tokio::time::timeout(wait, stream.next()).await {
-            Ok(Some(Ok(chunk))) => {
-                buf.extend_from_slice(&chunk);
-                // Cap buffer; we only need enough to detect block phrases.
-                if buf.len() > 65_536 {
-                    buf.truncate(65_536);
-                    break;
-                }
-                let sample = String::from_utf8_lossy(&buf);
-                if looks_like_soft_block(&sample) {
-                    return false;
-                }
-            }
-            Ok(Some(Err(_))) => break,
-            Ok(None) => break, // EOF — page finished early
-            Err(_) => break,   // 18s reached
-        }
+/// Double-check: succeed if either probe returns models; fail only if both fail.
+async fn check_gemini(client: &reqwest::Client) -> bool {
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models?key={}",
+        GEMINI_API_KEY
+    );
+    if check_gemini_once(client, &url).await {
+        return true;
     }
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    check_gemini_once(client, &url).await
+}
 
-    if buf.is_empty() {
-        return false;
+async fn check_site_by_id(client: &reqwest::Client, site_id: &str) -> bool {
+    match site_id {
+        "gemini" => check_gemini(client).await,
+        _ => false,
     }
-    let sample = String::from_utf8_lossy(&buf);
-    if looks_like_soft_block(&sample) {
-        return false;
-    }
-    true
 }
 
 async fn perform_site_test(
@@ -654,9 +604,8 @@ async fn perform_site_test(
     for site in sites {
         let client = client.clone();
         let id = site.id.clone();
-        let url = site.url.clone();
         futs.push(async move {
-            let ok = check_site_through_proxy(&client, &url).await;
+            let ok = check_site_by_id(&client, &id).await;
             SiteCheckResult { id, ok }
         });
     }

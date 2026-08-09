@@ -42,7 +42,6 @@ const startBatchTestToRust = async (
     testMode === 'siteTest'
       ? resolveSelectedSites(settings.siteTestSelectedIds).map((s) => ({
           id: s.id,
-          url: s.checkUrl,
         }))
       : [];
 
