@@ -47,7 +47,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
 
   const parentRef = useRef<HTMLDivElement>(null);
 
-  type SortColumn = 'ping' | 'country' | 'speed';
+  type SortColumn = 'ping' | 'country' | 'speed' | 'sites';
   const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [secondarySortColumn, setSecondarySortColumn] = useState<SortColumn | null>(null);
@@ -119,6 +119,13 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     return null;
   };
 
+  /** Count of selected sites that passed; `null` = never site-tested. */
+  const sitePassCount = (item: ConfigItem): number | null => {
+    const results = item.siteResults;
+    if (!results || Object.keys(results).length === 0) return null;
+    return selectedSites.reduce((n, site) => n + (results[site.id] === true ? 1 : 0), 0);
+  };
+
   const compareByColumn = (
     a: ConfigItem,
     b: ConfigItem,
@@ -134,6 +141,18 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
       if (!nameB) return -1;
       const cmp = nameA.localeCompare(nameB, lang, { sensitivity: 'base' });
       return direction === 'asc' ? cmp : -cmp;
+    }
+
+    if (column === 'sites') {
+      const countA = sitePassCount(a);
+      const countB = sitePassCount(b);
+      // Untested always last (regardless of asc/desc).
+      if (countA === null && countB === null) return 0;
+      if (countA === null) return 1;
+      if (countB === null) return -1;
+      if (countA < countB) return direction === 'asc' ? -1 : 1;
+      if (countA > countB) return direction === 'asc' ? 1 : -1;
+      return 0;
     }
 
     let valA = 0;
@@ -213,6 +232,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     secondarySortColumn,
     secondarySortDirection,
     settings.language,
+    selectedSites,
   ]);
 
   const virtualizer = useVirtualizer({
@@ -445,7 +465,18 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
           {t('speed')}
           {renderSortIcon('speed')}
         </div>
-        <div className="w-28 text-start">{t('sites')}</div>
+        <div
+          className="w-28 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
+          title={t('secondarySortHint')}
+          onClick={() => handleSort('sites')}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            handleSecondarySort('sites');
+          }}
+        >
+          {t('sites')}
+          {renderSortIcon('sites')}
+        </div>
         {settings.showTrafficStats && (
           <>
             <div className="w-24 text-start">{t('todayUsage')}</div>
