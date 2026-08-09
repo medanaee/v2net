@@ -4966,6 +4966,7 @@ dependencies = [
 name = "v2net"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "futures-util",
  "is_elevated",
  "libc",

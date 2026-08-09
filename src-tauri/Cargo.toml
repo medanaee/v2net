@@ -27,6 +27,7 @@ reqwest = { version = "0.12", features = ["json", "stream", "socks"] }
 window-vibrancy = "0.5"
 tauri-plugin-shell = "2.3.5"
 futures-util = "0.3.33"
+base64 = "0.22"
 sysproxy = "0.3.0"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-os = "2.3.2"
