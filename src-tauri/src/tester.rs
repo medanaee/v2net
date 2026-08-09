@@ -42,7 +42,7 @@ pub struct SiteTarget {
 }
 
 /// Disposable AI Studio key for Gemini models-list probe (list-only, no billed generate).
-const GEMINI_API_KEY: &str = "AQ.Ab8RN6Ldjauh8VnAlWD9sgNxWB_Ty2HcaCngVJzWSH9WPNld-Q";
+const GEMINI_API_KEY: &str = "AQ.Ab8RN6KWT_t71Epy9N0ZD0TooZ82U582yIQeDYa1avmh4H1sPQ";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SiteCheckResult {
