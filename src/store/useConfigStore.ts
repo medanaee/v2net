@@ -321,6 +321,8 @@ export const useConfigStore = create<ConfigState>()(
             realDelay: null,
             downloadSpeed: null,
             uploadSpeed: null,
+            countryCode: null,
+            siteResults: undefined,
           };
         }
         return c;

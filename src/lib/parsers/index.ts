@@ -26,14 +26,25 @@ export function parseSingleConfig(line: string, groupId: string, index: number):
   return null;
 }
 
-export function parseBatchConfigs(rawText: string, groupId: string): ConfigItem[] {
-  const lines = rawText.split(/\r?\n/);
-  const configs: ConfigItem[] = [];
+/** Share-link schemes we recognize; matched anywhere in free-form text. */
+const SHARE_LINK_RE = /(?:vmess|vless|trojan|ss):\/\/[^\s<>"'`]+/gi;
 
-  for (let i = 0; i < lines.length; i++) {
-    const item = parseSingleConfig(lines[i], groupId, i);
+export function parseBatchConfigs(rawText: string, groupId: string): ConfigItem[] {
+  const configs: ConfigItem[] = [];
+  const seen = new Set<string>();
+  let index = 0;
+
+  for (const match of rawText.matchAll(SHARE_LINK_RE)) {
+    // Strip trailing punctuation often glued on in chats / markdown.
+    const link = match[0].replace(/[),.;:!?\]]+$/g, '');
+    const dedupeKey = link.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+
+    const item = parseSingleConfig(link, groupId, index);
     if (item) {
+      seen.add(dedupeKey);
       configs.push(item);
+      index += 1;
     }
   }
 
