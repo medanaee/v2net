@@ -26,17 +26,30 @@ export function parseSingleConfig(line: string, groupId: string, index: number):
   return null;
 }
 
-/** Share-link schemes we recognize; matched anywhere in free-form text. */
-const SHARE_LINK_RE = /(?:vmess|vless|trojan|ss):\/\/[^\s<>"'`]+/gi;
+/** Share-link scheme starts; each link runs until whitespace or the next scheme. */
+const SHARE_SCHEME_RE = /(?:vmess|vless|trojan|ss):\/\//gi;
 
 export function parseBatchConfigs(rawText: string, groupId: string): ConfigItem[] {
   const configs: ConfigItem[] = [];
   const seen = new Set<string>();
   let index = 0;
 
-  for (const match of rawText.matchAll(SHARE_LINK_RE)) {
+  const starts: number[] = [];
+  for (const match of rawText.matchAll(SHARE_SCHEME_RE)) {
+    if (match.index !== undefined) starts.push(match.index);
+  }
+
+  for (let i = 0; i < starts.length; i++) {
+    const start = starts[i];
+    const limit = i + 1 < starts.length ? starts[i + 1] : rawText.length;
+    const chunk = rawText.slice(start, limit);
+    // Also stop at whitespace / wrappers before the next scheme.
+    const stop = chunk.search(/[\s<>"'`]/);
+    let link = (stop === -1 ? chunk : chunk.slice(0, stop)).trim();
     // Strip trailing punctuation often glued on in chats / markdown.
-    const link = match[0].replace(/[),.;:!?\]]+$/g, '');
+    link = link.replace(/[),.;:!?\]]+$/g, '');
+    if (!link) continue;
+
     const dedupeKey = link.toLowerCase();
     if (seen.has(dedupeKey)) continue;
 

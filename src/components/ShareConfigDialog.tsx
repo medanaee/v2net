@@ -48,19 +48,19 @@ export const ShareConfigDialog: React.FC<ShareConfigDialogProps> = ({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-w-md gap-4" showCloseButton>
-        <DialogHeader>
-          <DialogTitle className="pe-6 truncate">
+      <DialogContent className="max-w-md w-[min(100vw-2rem,28rem)] gap-4 overflow-hidden" showCloseButton>
+        <DialogHeader className="min-w-0 overflow-hidden pe-8">
+          <DialogTitle className="min-w-0 truncate" title={config?.name || undefined}>
             {config?.name || t('share')}
           </DialogTitle>
-          <DialogDescription>{t('shareConfigDesc')}</DialogDescription>
+          <DialogDescription className="min-w-0">{t('shareConfigDesc')}</DialogDescription>
         </DialogHeader>
 
         <div className="flex justify-center rounded-lg bg-white p-3 mx-auto">
           {raw ? (
-            <QRCodeSVG value={raw} size={200} level="M" includeMargin={false} />
+            <QRCodeSVG value={raw} size={250} level="M" includeMargin={false} />
           ) : (
-            <div className="size-[200px] flex items-center justify-center text-xs text-muted-foreground">
+            <div className="size-[250px] flex items-center justify-center text-xs text-muted-foreground">
               —
             </div>
           )}
