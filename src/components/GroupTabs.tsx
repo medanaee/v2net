@@ -180,7 +180,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
                   onSelect={(e) => e.preventDefault()}
                   className="gap-2 text-xs"
                 >
-                  <Icon className="size-3.5 text-sky-500" />
+                  <Icon className={`size-3.5 ${site.colorClass || 'text-sky-500'}`} />
                   {t(site.nameKey)}
                 </DropdownMenuCheckboxItem>
               );

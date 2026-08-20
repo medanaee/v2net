@@ -27,7 +27,7 @@ import { Checkbox } from './ui/checkbox';
 import { NumberInput } from './ui/number-input';
 import { SimpleNumberInput } from './ui/simple-number-input';
 import { GroupEditorDialog } from './GroupEditorDialog';
-import { SITE_CATALOG } from '../lib/siteCatalog';
+import { SITE_CATALOG, resolveSelectedSites } from '../lib/siteCatalog';
 
 
 const SettingCard: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
@@ -590,7 +590,7 @@ export const SettingsModal: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {SITE_CATALOG.map((site) => {
-                    const selected = settings.siteTestSelectedIds ?? ['gemini'];
+                    const selected = resolveSelectedSites(settings.siteTestSelectedIds).map((s) => s.id);
                     const checked = selected.includes(site.id);
                     const Icon = site.Icon;
                     return (
@@ -606,7 +606,7 @@ export const SettingsModal: React.FC = () => {
                           checked={checked}
                           onCheckedChange={(val) => {
                             const on = !!val;
-                            const prev = settings.siteTestSelectedIds ?? ['gemini'];
+                            const prev = resolveSelectedSites(settings.siteTestSelectedIds).map((s) => s.id);
                             let next: string[];
                             if (on) {
                               next = prev.includes(site.id) ? prev : [...prev, site.id];
@@ -620,7 +620,7 @@ export const SettingsModal: React.FC = () => {
                             updateSettings({ siteTestSelectedIds: next });
                           }}
                         />
-                        <span className="inline-flex items-center justify-center size-7 rounded-md bg-background/80 text-sky-500">
+                        <span className={`inline-flex items-center justify-center size-7 rounded-md bg-background/80 ${site.colorClass || 'text-sky-500'}`}>
                           <Icon className="size-4" />
                         </span>
                         <span className="text-xs font-medium">{t(site.nameKey)}</span>

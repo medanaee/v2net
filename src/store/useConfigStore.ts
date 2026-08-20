@@ -585,7 +585,7 @@ export const useConfigStore = create<ConfigState>()(
     activeConfigId: null,
     showTrafficStats: true,
     hasSeenSecondarySortTip: false,
-    siteTestSelectedIds: ['gemini'],
+    siteTestSelectedIds: ['gemini', 'colab'],
   },
 
   updateSettings: (newSettings) => {
@@ -643,11 +643,18 @@ export const useConfigStore = create<ConfigState>()(
             showTrafficStats: persistedState.settings?.showTrafficStats ?? true,
             hasSeenSecondarySortTip:
               persistedState.settings?.hasSeenSecondarySortTip ?? false,
-            siteTestSelectedIds:
-              Array.isArray(persistedState.settings?.siteTestSelectedIds) &&
-              persistedState.settings.siteTestSelectedIds.length > 0
-                ? persistedState.settings.siteTestSelectedIds
-                : ['gemini'],
+            siteTestSelectedIds: (() => {
+              const persisted = persistedState.settings?.siteTestSelectedIds;
+              const allIds = ['gemini', 'colab'];
+              if (!Array.isArray(persisted) || persisted.length === 0) {
+                return allIds;
+              }
+              if (persisted.length === 1 && persisted[0] === 'gemini') {
+                return allIds;
+              }
+              const valid = persisted.filter((id: string) => allIds.includes(id));
+              return valid.length > 0 ? valid : allIds;
+            })(),
           },
         };
       },
