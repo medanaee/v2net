@@ -590,9 +590,45 @@ async fn check_gemini(client: &reqwest::Client) -> bool {
     check_gemini_once(client, &url).await
 }
 
+/// One Google Colab probe. 200 + contains "colab" or "colaboratory" in body → true.
+async fn check_colab_once(client: &reqwest::Client) -> bool {
+    let resp = match client
+        .get("https://colab.research.google.com/")
+        .header(
+            reqwest::header::USER_AGENT,
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        )
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+    if resp.status().as_u16() != 200 {
+        return false;
+    }
+    match resp.text().await {
+        Ok(body) => {
+            let lower = body.to_ascii_lowercase();
+            lower.contains("colab") || lower.contains("colaboratory")
+        }
+        Err(_) => false,
+    }
+}
+
+/// Double-check: succeed if either probe returns colab page; fail only if both fail.
+async fn check_colab(client: &reqwest::Client) -> bool {
+    if check_colab_once(client).await {
+        return true;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    check_colab_once(client).await
+}
+
 async fn check_site_by_id(client: &reqwest::Client, site_id: &str) -> bool {
     match site_id {
         "gemini" => check_gemini(client).await,
+        "colab" => check_colab(client).await,
         _ => false,
     }
 }

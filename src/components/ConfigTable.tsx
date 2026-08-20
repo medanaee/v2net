@@ -131,7 +131,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     b: ConfigItem,
     column: SortColumn,
     direction: 'asc' | 'desc',
-    lang: string
+    lang: 'fa' | 'en'
   ): number => {
     if (column === 'country') {
       const nameA = a.countryCode ? countryDisplayName(a.countryCode, lang) : '';
@@ -395,15 +395,24 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
       <div className="flex items-center gap-1 h-full">
         {selectedSites.map((site) => {
           const Icon = site.Icon;
-          const ok = results[site.id] === true;
+          const res = results[site.id];
+          const ok = res === true;
+          const isUntested = res === undefined || res === null;
+          const statusText = ok
+            ? t('siteOk')
+            : isUntested
+            ? t('siteUntested')
+            : t('siteFail');
           const name = t(site.nameKey);
           return (
             <span
               key={site.id}
-              title={`${name}: ${ok ? t('siteOk') : t('siteFail')}`}
+              title={`${name}: ${statusText}`}
               className={`inline-flex items-center justify-center size-5 rounded transition-opacity ${
                 ok
-                  ? 'text-sky-500 opacity-100'
+                  ? `${site.colorClass || 'text-sky-500'} opacity-100`
+                  : isUntested
+                  ? 'text-muted-foreground/50 opacity-30'
                   : 'text-muted-foreground opacity-25 grayscale'
               }`}
             >
