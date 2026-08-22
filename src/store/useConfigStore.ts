@@ -649,13 +649,16 @@ export const useConfigStore = create<ConfigState>()(
               if (!Array.isArray(persisted) || persisted.length === 0) {
                 return allIds;
               }
-              if (
-                persisted.length === 1 &&
-                (persisted[0] === 'gemini' || persisted[0] === 'colab')
-              ) {
+              const isOldDefault =
+                (persisted.length === 1 && (persisted[0] === 'gemini' || persisted[0] === 'colab')) ||
+                (persisted.length === 2 && persisted.includes('gemini') && persisted.includes('colab'));
+              if (isOldDefault) {
                 return allIds;
               }
               const valid = persisted.filter((id: string) => allIds.includes(id));
+              if (!valid.includes('overleaf')) {
+                valid.push('overleaf');
+              }
               return valid.length > 0 ? valid : allIds;
             })(),
           },
