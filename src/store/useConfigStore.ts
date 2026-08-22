@@ -585,7 +585,7 @@ export const useConfigStore = create<ConfigState>()(
     activeConfigId: null,
     showTrafficStats: true,
     hasSeenSecondarySortTip: false,
-    siteTestSelectedIds: ['gemini', 'colab'],
+    siteTestSelectedIds: ['gemini', 'colab', 'overleaf'],
   },
 
   updateSettings: (newSettings) => {
@@ -645,11 +645,14 @@ export const useConfigStore = create<ConfigState>()(
               persistedState.settings?.hasSeenSecondarySortTip ?? false,
             siteTestSelectedIds: (() => {
               const persisted = persistedState.settings?.siteTestSelectedIds;
-              const allIds = ['gemini', 'colab'];
+              const allIds = ['gemini', 'colab', 'overleaf'];
               if (!Array.isArray(persisted) || persisted.length === 0) {
                 return allIds;
               }
-              if (persisted.length === 1 && persisted[0] === 'gemini') {
+              if (
+                persisted.length === 1 &&
+                (persisted[0] === 'gemini' || persisted[0] === 'colab')
+              ) {
                 return allIds;
               }
               const valid = persisted.filter((id: string) => allIds.includes(id));

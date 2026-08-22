@@ -1,6 +1,7 @@
 import type { ComponentType, SVGProps } from 'react';
 import { GeminiIcon } from '../components/icons/GeminiIcon';
 import { ColabIcon } from '../components/icons/ColabIcon';
+import { OverleafIcon } from '../components/icons/OverleafIcon';
 
 export type SiteIconProps = SVGProps<SVGSVGElement>;
 
@@ -29,6 +30,12 @@ export const SITE_CATALOG: SiteDef[] = [
     nameKey: 'siteColab',
     Icon: ColabIcon,
     colorClass: 'text-amber-500',
+  },
+  {
+    id: 'overleaf',
+    nameKey: 'siteOverleaf',
+    Icon: OverleafIcon,
+    colorClass: 'text-emerald-500',
   },
 ];
 
