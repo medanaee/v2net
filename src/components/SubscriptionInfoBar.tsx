@@ -63,7 +63,7 @@ export const SubscriptionInfoBar: React.FC = () => {
         {/* Days / Expiry Badge */}
         {(info.remainingDays || info.expireDate) && (
           <div
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/60 text-foreground border border-border/40 text-[11px] font-medium shrink-0"
+            className="h-6 flex items-center gap-1.5 px-2.5 rounded-md bg-muted/60 text-foreground border border-border/50 text-[11px] font-medium shrink-0 select-none"
             title={info.expireDate ? `${t('expires')}: ${info.expireDate}` : undefined}
           >
             <Calendar className="w-3.5 h-3.5 text-sky-500 shrink-0" />
@@ -79,9 +79,9 @@ export const SubscriptionInfoBar: React.FC = () => {
         {/* Traffic Usage Badge with In-Place Progress Fill */}
         {(info.usedTraffic || info.totalTraffic) && (
           <div
-            className={`relative overflow-hidden flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-muted/80 dark:bg-slate-900 border ${
+            className={`relative h-6 overflow-hidden flex items-center gap-1.5 px-2.5 rounded-md bg-muted/60 border ${
               info.percentUsed !== undefined && info.percentUsed > 90
-                ? 'border-red-500/50'
+                ? 'border-red-500/60'
                 : 'border-border/50'
             } text-[11px] font-medium shrink-0 select-none`}
             title={t('trafficUsage')}
@@ -92,30 +92,30 @@ export const SubscriptionInfoBar: React.FC = () => {
                 className={`absolute inset-y-0 start-0 transition-all duration-300 pointer-events-none ${
                   info.percentUsed > 90
                     ? 'bg-red-500/35 dark:bg-red-500/45'
-                    : 'bg-emerald-500/30 dark:bg-emerald-500/35'
+                    : 'bg-emerald-500/25 dark:bg-emerald-500/30'
                 }`}
                 style={{ width: `${Math.min(100, Math.max(0, info.percentUsed))}%` }}
               />
             )}
 
             {/* High-contrast content on top */}
-            <div className="relative z-10 flex items-center gap-1.5 text-white">
+            <div className="relative z-10 flex items-center gap-1.5 text-foreground dark:text-white font-medium">
               <HardDrive
                 className={`w-3.5 h-3.5 shrink-0 ${
                   info.percentUsed !== undefined && info.percentUsed > 90
                     ? 'text-red-400'
-                    : 'text-emerald-400'
+                    : 'text-emerald-500 dark:text-emerald-400'
                 }`}
               />
-              <span className="text-white/80 hidden sm:inline text-[10px]">
+              <span className="text-muted-foreground dark:text-white/80 hidden sm:inline text-[10px]">
                 {t('trafficUsage')}:
               </span>
-              <span className="font-semibold text-white tabular-nums">
+              <span className="font-semibold text-foreground dark:text-white tabular-nums">
                 {info.usedTraffic ? `${info.usedTraffic} / ` : ''}
                 {info.totalTraffic}
               </span>
               {info.percentUsed !== undefined && (
-                <span className="text-[10px] font-bold text-white/90 tabular-nums">
+                <span className="text-[10px] font-bold text-muted-foreground dark:text-white/90 tabular-nums">
                   ({info.percentUsed}%)
                 </span>
               )}
@@ -125,7 +125,7 @@ export const SubscriptionInfoBar: React.FC = () => {
 
         {/* Raw Display (if unstructured string) */}
         {!hasStructuredData && info.raw && (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted text-foreground border border-border/50 text-[11px] font-medium shrink-0">
+          <div className="h-6 flex items-center gap-1.5 px-2.5 rounded-md bg-muted/60 text-foreground border border-border/50 text-[11px] font-medium shrink-0">
             <Info className="w-3.5 h-3.5 text-sky-500 shrink-0" />
             <span>{info.raw}</span>
           </div>
