@@ -15,8 +15,8 @@
         "title": "v2net",
         "width": 1500,
         "height": 750,
-        "minWidth": 900,
-        "minHeight": 600,
+        "minWidth": 550,
+        "minHeight": 450,
         "decorations": false,
         "transparent": true
       }

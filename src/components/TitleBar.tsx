@@ -133,21 +133,21 @@ export const TitleBar: React.FC = () => {
   return (
     <div
       data-tauri-drag-region
-      className="h-10 border-b flex items-center justify-between px-3 select-none text-xs font-medium bg-transparent border-border/50 z-50 shrink-0"
+      className="h-10 border-b flex items-center justify-between px-2 sm:px-3 select-none text-xs font-medium bg-transparent border-border/50 z-50 shrink-0 gap-2"
     >
-      <div className="flex items-center gap-3" data-tauri-drag-region>
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0" data-tauri-drag-region>
         <div className="flex items-center gap-1.5 text-blue-500 font-bold text-sm pointer-events-none">
           <img src="/icon.png" alt="v2net" className="w-5 h-5 object-contain pointer-events-none" />
-          <span>{t('appTitle')}</span>
+          <span className="hidden sm:inline">{t('appTitle')}</span>
         </div>
 
-        <div className="h-4 w-[1px] bg-border" />
+        <div className="h-4 w-[1px] bg-border shrink-0" />
 
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground/70 text-[11px]">{t('group')}:</span>
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <span className="text-muted-foreground/70 text-[11px] hidden sm:inline">{t('group')}:</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 gap-1 font-medium max-w-[180px]">
+              <Button variant="outline" size="sm" className="h-7 gap-1 font-medium max-w-[120px] sm:max-w-[180px]">
                 {activeIsSub && <Link2 className="w-3 h-3 text-sky-500 shrink-0" />}
                 <span className="truncate">{activeGroup?.name}</span>
                 <ChevronDown className="w-3.5 h-3.5 opacity-60 shrink-0" />
@@ -173,7 +173,7 @@ export const TitleBar: React.FC = () => {
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 text-sky-500 hover:bg-sky-500/10"
+              className="h-7 w-7 text-sky-500 hover:bg-sky-500/10 shrink-0"
               title={t('refreshSubscription')}
               disabled={refreshing}
               onClick={handleRefreshActive}
@@ -186,11 +186,11 @@ export const TitleBar: React.FC = () => {
             variant="secondary"
             size="sm"
             onClick={() => setIsAddGroupOpen(true)}
-            className="h-7 gap-1"
+            className="h-7 gap-1 px-2 shrink-0"
             title={t('newGroup')}
           >
-            <FolderPlus className="w-3.5 h-3.5 text-blue-500" />
-            <span>{t('newGroup')}</span>
+            <FolderPlus className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <span className="hidden md:inline">{t('newGroup')}</span>
           </Button>
 
           {groups.length > 1 && activeGroupId !== 'default_group' && (
@@ -199,10 +199,10 @@ export const TitleBar: React.FC = () => {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-7 w-7 text-red-500 hover:bg-red-500/10"
+                  className="h-7 w-7 text-red-500 hover:bg-red-500/10 shrink-0"
                   title={t('deleteGroup')}
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -225,7 +225,7 @@ export const TitleBar: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5" data-tauri-drag-region={false}>
+      <div className="flex items-center gap-1 sm:gap-1.5 shrink-0" data-tauri-drag-region={false}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="h-7 gap-1 px-2">
@@ -243,7 +243,7 @@ export const TitleBar: React.FC = () => {
           variant="ghost"
           size="icon"
           onClick={toggleTheme}
-          className="h-7 w-7"
+          className="h-7 w-7 shrink-0"
           title={t('theme')}
         >
           {settings.theme === 'dark' ? (
@@ -257,17 +257,18 @@ export const TitleBar: React.FC = () => {
           variant={isSettingsOpen ? 'default' : 'secondary'}
           size="sm"
           onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-          className="h-7 gap-1"
+          className="h-7 gap-1 px-2 shrink-0"
+          title={t('settings')}
         >
-          <Settings className="w-3.5 h-3.5" />
-          <span>{t('settings')}</span>
+          <Settings className="w-3.5 h-3.5 shrink-0" />
+          <span className="hidden md:inline">{t('settings')}</span>
         </Button>
 
-        <div className="h-4 w-[1px] bg-border mx-1" />
+        <div className="h-4 w-[1px] bg-border mx-0.5 sm:mx-1 shrink-0" />
 
         <button
           onClick={handleMinimize}
-          className="h-7 w-8 flex items-center justify-center hover:bg-muted text-muted-foreground"
+          className="h-7 w-8 flex items-center justify-center hover:bg-muted text-muted-foreground shrink-0"
           title="Minimize"
         >
           <Minus className="w-3.5 h-3.5" />
