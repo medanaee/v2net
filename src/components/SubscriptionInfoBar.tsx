@@ -76,41 +76,50 @@ export const SubscriptionInfoBar: React.FC = () => {
           </div>
         )}
 
-        {/* Traffic Usage Badge */}
+        {/* Traffic Usage Badge with In-Place Progress Fill */}
         {(info.usedTraffic || info.totalTraffic) && (
           <div
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/60 text-foreground border border-border/40 text-[11px] font-medium shrink-0"
+            className={`relative overflow-hidden flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-muted/80 dark:bg-slate-900 border ${
+              info.percentUsed !== undefined && info.percentUsed > 90
+                ? 'border-red-500/50'
+                : 'border-border/50'
+            } text-[11px] font-medium shrink-0 select-none`}
             title={t('trafficUsage')}
           >
-            <HardDrive className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-            <span className="text-muted-foreground/80 hidden sm:inline text-[10px]">
-              {t('trafficUsage')}:
-            </span>
-            <span className="font-semibold tabular-nums">
-              {info.usedTraffic ? `${info.usedTraffic} / ` : ''}
-              {info.totalTraffic}
-            </span>
-          </div>
-        )}
-
-        {/* Progress Bar (if percentage is parsed) */}
-        {info.percentUsed !== undefined && (
-          <div className="flex items-center gap-1.5 shrink-0">
-            <div className="w-14 sm:w-20 md:w-28 h-1.5 bg-muted rounded-full overflow-hidden border border-border/50">
+            {/* Transparent progress fill bar */}
+            {info.percentUsed !== undefined && (
               <div
-                className={`h-full transition-all duration-300 ${
+                className={`absolute inset-y-0 start-0 transition-all duration-300 pointer-events-none ${
                   info.percentUsed > 90
-                    ? 'bg-red-500'
-                    : info.percentUsed > 75
-                    ? 'bg-amber-500'
-                    : 'bg-emerald-500'
+                    ? 'bg-red-500/35 dark:bg-red-500/45'
+                    : 'bg-emerald-500/30 dark:bg-emerald-500/35'
                 }`}
                 style={{ width: `${Math.min(100, Math.max(0, info.percentUsed))}%` }}
               />
+            )}
+
+            {/* High-contrast content on top */}
+            <div className="relative z-10 flex items-center gap-1.5 text-white">
+              <HardDrive
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  info.percentUsed !== undefined && info.percentUsed > 90
+                    ? 'text-red-400'
+                    : 'text-emerald-400'
+                }`}
+              />
+              <span className="text-white/80 hidden sm:inline text-[10px]">
+                {t('trafficUsage')}:
+              </span>
+              <span className="font-semibold text-white tabular-nums">
+                {info.usedTraffic ? `${info.usedTraffic} / ` : ''}
+                {info.totalTraffic}
+              </span>
+              {info.percentUsed !== undefined && (
+                <span className="text-[10px] font-bold text-white/90 tabular-nums">
+                  ({info.percentUsed}%)
+                </span>
+              )}
             </div>
-            <span className="text-[10px] font-bold text-muted-foreground tabular-nums">
-              {info.percentUsed}%
-            </span>
           </div>
         )}
 
