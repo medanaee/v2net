@@ -138,11 +138,11 @@ export const App: React.FC = () => {
         <SettingsModal />
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Subscription Days & Traffic Status Info Bar (under TitleBar, above GroupTabs) */}
+          <SubscriptionInfoBar />
+
           {/* 3 Tabs & Action Toolbar */}
           <GroupTabs searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
-
-          {/* Subscription Days & Traffic Status Info Bar */}
-          <SubscriptionInfoBar />
 
           {/* High-Performance Virtualized Config Table */}
           <ConfigTable searchQuery={searchQuery} />

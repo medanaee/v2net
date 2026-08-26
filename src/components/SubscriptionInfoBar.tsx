@@ -52,10 +52,10 @@ export const SubscriptionInfoBar: React.FC = () => {
     !!info.totalTraffic;
 
   return (
-    <div className="h-8 border-b flex items-center justify-between px-2 sm:px-3 bg-blue-500/5 dark:bg-blue-950/20 border-border/40 text-xs shrink-0 select-none gap-2 overflow-x-auto overflow-y-hidden animate-fade-in">
+    <div className="h-8 border-b flex items-center justify-between px-2 sm:px-3 bg-background border-border/50 text-xs shrink-0 select-none gap-2 overflow-x-auto overflow-y-hidden">
       <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
         {/* Subscription Header Label */}
-        <div className="flex items-center gap-1 text-sky-600 dark:text-sky-400 font-semibold text-[11px] shrink-0">
+        <div className="flex items-center gap-1 text-sky-500 font-semibold text-[11px] shrink-0">
           <Link2 className="w-3.5 h-3.5 shrink-0" />
           <span className="hidden sm:inline">{t('subscriptionInfo')}:</span>
         </div>
@@ -63,10 +63,10 @@ export const SubscriptionInfoBar: React.FC = () => {
         {/* Days / Expiry Badge */}
         {(info.remainingDays || info.expireDate) && (
           <div
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 text-[11px] font-medium shrink-0"
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/60 text-foreground border border-border/40 text-[11px] font-medium shrink-0"
             title={info.expireDate ? `${t('expires')}: ${info.expireDate}` : undefined}
           >
-            <Calendar className="w-3.5 h-3.5 shrink-0" />
+            <Calendar className="w-3.5 h-3.5 text-sky-500 shrink-0" />
             <span className="font-semibold">{info.remainingDays || info.expireDate}</span>
             {info.remainingDays && info.expireDate && (
               <span className="text-[10px] opacity-70 hidden md:inline">
@@ -79,7 +79,7 @@ export const SubscriptionInfoBar: React.FC = () => {
         {/* Traffic Usage Badge */}
         {(info.usedTraffic || info.totalTraffic) && (
           <div
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 text-[11px] font-medium shrink-0"
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-muted/60 text-foreground border border-border/40 text-[11px] font-medium shrink-0"
             title={t('trafficUsage')}
           >
             <HardDrive className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
