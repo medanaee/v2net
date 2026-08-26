@@ -1,9 +1,16 @@
 //! Fetch remote subscription content (avoid webview CORS).
 
+use serde::Serialize;
 use std::time::Duration;
 
+#[derive(Serialize)]
+pub struct SubscriptionResponse {
+    pub body: String,
+    pub userinfo: Option<String>,
+}
+
 #[tauri::command]
-pub async fn fetch_subscription(url: String) -> Result<String, String> {
+pub async fn fetch_subscription(url: String) -> Result<SubscriptionResponse, String> {
     let url = url.trim().to_string();
     if url.is_empty() {
         return Err("empty subscription url".into());
@@ -31,14 +38,22 @@ pub async fn fetch_subscription(url: String) -> Result<String, String> {
         return Err(format!("subscription HTTP {status}"));
     }
 
+    let userinfo = resp
+        .headers()
+        .get("subscription-userinfo")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| s.to_string());
+
     let bytes = resp
         .bytes()
         .await
         .map_err(|e| format!("failed to read subscription body: {e}"))?;
 
     // Prefer UTF-8; fall back to lossy so base64 payloads still reach the UI.
-    match String::from_utf8(bytes.to_vec()) {
-        Ok(s) => Ok(s),
-        Err(e) => Ok(String::from_utf8_lossy(e.as_bytes()).into_owned()),
-    }
+    let body = match String::from_utf8(bytes.to_vec()) {
+        Ok(s) => s,
+        Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+    };
+
+    Ok(SubscriptionResponse { body, userinfo })
 }

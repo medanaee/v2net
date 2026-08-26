@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { TitleBar } from './components/TitleBar';
 import { GroupTabs } from './components/GroupTabs';
+import { SubscriptionInfoBar } from './components/SubscriptionInfoBar';
 import { ConfigTable } from './components/ConfigTable';
 import { TestingBar } from './components/TestingBar';
 import { ConnectionBar } from './components/ConnectionBar';
@@ -139,6 +140,9 @@ export const App: React.FC = () => {
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* 3 Tabs & Action Toolbar */}
           <GroupTabs searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
+
+          {/* Subscription Days & Traffic Status Info Bar */}
+          <SubscriptionInfoBar />
 
           {/* High-Performance Virtualized Config Table */}
           <ConfigTable searchQuery={searchQuery} />

@@ -364,6 +364,20 @@ export const SettingsModal: React.FC = () => {
                               {group.subscriptionUrl}
                             </p>
                           )}
+                          {isSub && group.subscriptionInfo && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                              {(group.subscriptionInfo.remainingDays || group.subscriptionInfo.expireDate) && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium">
+                                  {group.subscriptionInfo.remainingDays || group.subscriptionInfo.expireDate}
+                                </span>
+                              )}
+                              {(group.subscriptionInfo.usedTraffic || group.subscriptionInfo.totalTraffic) && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">
+                                  {group.subscriptionInfo.usedTraffic ? `${group.subscriptionInfo.usedTraffic} / ` : ''}{group.subscriptionInfo.totalTraffic}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
