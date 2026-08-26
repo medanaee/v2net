@@ -135,7 +135,7 @@ export const SubscriptionInfoBar: React.FC = () => {
       {/* Right side: Last updated time & Refresh Button */}
       <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
         {activeGroup.lastUpdated && (
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground/70 hidden lg:flex">
+          <div className="flex items-center gap-1 text-[16px] text-muted-foreground/70 hidden lg:flex">
             <Clock className="w-3 h-3" />
             <span>
               {t('lastUpdated')}: {new Date(activeGroup.lastUpdated).toLocaleTimeString()}
