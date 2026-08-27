@@ -236,45 +236,55 @@ export const TestingBar: React.FC = () => {
     <button
       onClick={() => setTestMode(mode)}
       disabled={isTesting}
-      className={`h-7 px-2.5 flex items-center gap-1 rounded text-xs font-medium cursor-pointer transition-colors ${
+      title={label}
+      className={`h-7 px-1.5 sm:px-2.5 flex items-center gap-1 rounded text-xs font-medium cursor-pointer transition-colors shrink-0 ${
         testMode === mode
           ? 'bg-blue-600 text-white shadow-sm'
           : 'text-muted-foreground hover:text-foreground'
       }`}
     >
       {icon}
-      <span>{label}</span>
+      <span className="hidden md:inline">{label}</span>
     </button>
   );
 
   return (
-    <div className="h-12 border-t flex items-center justify-between px-2 bg-transparent border-border/50 text-xs select-none shrink-0">
-      <div className="flex items-center gap-2">
-        <div className="flex items-center bg-muted/50 border border-border/50 rounded-md p-0.5">
-          {modeBtn('realDelay', <Activity className="w-3.5 h-3.5" />, t('realDelayTest'))}
-          {modeBtn('speed', <Gauge className="w-3.5 h-3.5" />, t('speedTest'))}
-          {modeBtn('hybrid', <Zap className="w-3.5 h-3.5" />, t('hybridTest'))}
-          {modeBtn('siteTest', <Globe2 className="w-3.5 h-3.5" />, t('siteTest'))}
+    <div className="h-12 border-t flex items-center justify-between px-2 bg-transparent border-border/50 text-xs select-none shrink-0 gap-2 overflow-x-auto overflow-y-hidden">
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center bg-muted/50 border border-border/50 rounded-md p-0.5 shrink-0">
+          {modeBtn('realDelay', <Activity className="w-3.5 h-3.5 shrink-0" />, t('realDelayTest'))}
+          {modeBtn('speed', <Gauge className="w-3.5 h-3.5 shrink-0" />, t('speedTest'))}
+          {modeBtn('hybrid', <Zap className="w-3.5 h-3.5 shrink-0" />, t('hybridTest'))}
+          {modeBtn('siteTest', <Globe2 className="w-3.5 h-3.5 shrink-0" />, t('siteTest'))}
         </div>
 
         {isTesting ? (
-          <Button variant="destructive" onClick={handleStopTest} className="h-8 gap-1.5 font-medium">
-            <Square className="w-3.5 h-3.5 fill-current" />
-            <span>{t('stopTest')}</span>
+          <Button
+            variant="destructive"
+            onClick={handleStopTest}
+            title={t('stopTest')}
+            className="h-8 gap-1.5 font-medium px-2 sm:px-3 shrink-0"
+          >
+            <Square className="w-3.5 h-3.5 fill-current shrink-0" />
+            <span className="hidden sm:inline">{t('stopTest')}</span>
           </Button>
         ) : (
-          <Button onClick={handleStartTest} className="h-8 gap-1.5 font-medium">
-            <Play className="w-3.5 h-3.5 fill-current" />
-            <span>{t('startTest')}</span>
+          <Button
+            onClick={handleStartTest}
+            title={t('startTest')}
+            className="h-8 gap-1.5 font-medium px-2 sm:px-3 shrink-0"
+          >
+            <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+            <span className="hidden sm:inline">{t('startTest')}</span>
           </Button>
         )}
       </div>
 
-      <div className="flex items-center gap-4 w-1/2 justify-end">
+      <div className="flex items-center gap-2 sm:gap-4 shrink-0 justify-end">
         {isTesting && (
-          <div className="flex-1 max-w-xs space-y-1">
+          <div className="w-20 sm:w-32 md:w-44 space-y-1 shrink-0">
             <div className="flex justify-between text-[11px] font-medium text-muted-foreground">
-              <span>{t('testingStatus')}</span>
+              <span className="hidden sm:inline">{t('testingStatus')}</span>
               <span>{progressPercentage}%</span>
             </div>
             <div className="h-2 w-full bg-muted rounded-full overflow-hidden border border-border">
@@ -286,18 +296,20 @@ export const TestingBar: React.FC = () => {
           </div>
         )}
 
-        <div className="flex items-center gap-3 text-[11px] font-medium text-muted-foreground bg-muted/50 border border-border/50 rounded px-3 py-1.5">
+        <div className="flex items-center gap-2 sm:gap-3 text-[11px] font-medium text-muted-foreground bg-muted/50 border border-border/50 rounded px-2 sm:px-3 py-1.5 shrink-0">
           <div>
-            {t('tested')}: <span className="text-emerald-400 font-bold">{testProgress.tested}</span>
+            <span className="hidden sm:inline">{t('tested')}: </span>
+            <span className="text-emerald-400 font-bold">{testProgress.tested}</span>
           </div>
           <div className="h-3 w-[1px] bg-border" />
           <div>
-            {t('remaining')}:{' '}
+            <span className="hidden sm:inline">{t('remaining')}: </span>
             <span className="text-amber-400 font-bold">{testProgress.remaining}</span>
           </div>
           <div className="h-3 w-[1px] bg-border" />
           <div>
-            {t('total')}: <span className="text-foreground font-bold">{testProgress.total}</span>
+            <span className="hidden sm:inline">{t('total')}: </span>
+            <span className="text-foreground font-bold">{testProgress.total}</span>
           </div>
         </div>
       </div>

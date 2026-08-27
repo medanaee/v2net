@@ -1,6 +1,7 @@
 import type { ComponentType, SVGProps } from 'react';
 import { GeminiIcon } from '../components/icons/GeminiIcon';
 import { ColabIcon } from '../components/icons/ColabIcon';
+import { OverleafIcon } from '../components/icons/OverleafIcon';
 
 export type SiteIconProps = SVGProps<SVGSVGElement>;
 
@@ -30,6 +31,12 @@ export const SITE_CATALOG: SiteDef[] = [
     Icon: ColabIcon,
     colorClass: 'text-amber-500',
   },
+  {
+    id: 'overleaf',
+    nameKey: 'siteOverleaf',
+    Icon: OverleafIcon,
+    colorClass: 'text-emerald-500',
+  },
 ];
 
 export function getSiteById(id: string): SiteDef | undefined {
@@ -41,11 +48,18 @@ export function resolveSelectedSites(selectedIds: string[] | undefined | null): 
   if (!selectedIds || selectedIds.length === 0) {
     return SITE_CATALOG;
   }
-  // If stored settings only have legacy 'gemini' when more catalog sites exist, upgrade to all sites
-  const ids =
-    selectedIds.length === 1 && selectedIds[0] === 'gemini' && SITE_CATALOG.length > 1
-      ? SITE_CATALOG.map((s) => s.id)
-      : selectedIds;
+  const ids = [...selectedIds];
+  // If stored settings are from an earlier version that didn't know about newly added sites (e.g. colab or overleaf):
+  for (const site of SITE_CATALOG) {
+    if (!ids.includes(site.id)) {
+      const isKnownOldDefault =
+        (ids.length === 1 && ids[0] === 'gemini') ||
+        (ids.length === 2 && ids.includes('gemini') && ids.includes('colab'));
+      if (isKnownOldDefault) {
+        ids.push(site.id);
+      }
+    }
+  }
   const resolved = ids
     .map((id) => getSiteById(id))
     .filter((s): s is SiteDef => !!s);

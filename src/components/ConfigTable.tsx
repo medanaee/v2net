@@ -12,6 +12,16 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from './ui/context-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { CountryFlag } from './CountryFlag';
 import { countryDisplayName } from '../lib/country';
@@ -29,10 +39,12 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
     activeGroupId,
     activeTab,
     selectedConfigIds,
+    lastSelectedId,
     handleConfigClick,
     selectAllVisible,
     clearSelection,
     addConfigsFromText,
+    deleteSelectedConfigs,
     settings,
     updateSettings,
     isGroupSubscription,
@@ -54,6 +66,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
   const [secondarySortDirection, setSecondarySortDirection] = useState<'asc' | 'desc'>('asc');
   const [sortTip, setSortTip] = useState<string | null>(null);
   const [shareConfig, setShareConfig] = useState<ConfigItem | null>(null);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
   const showSecondarySortTipOnce = () => {
     if (settings.hasSeenSecondarySortTip) return;
@@ -278,9 +291,22 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
 
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
       if (
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable ||
         document.activeElement?.tagName === 'INPUT' ||
-        document.activeElement?.tagName === 'TEXTAREA'
+        document.activeElement?.tagName === 'TEXTAREA' ||
+        (document.activeElement as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+
+      if (
+        useConfigStore.getState().isSettingsOpen ||
+        shareConfig ||
+        document.querySelector('[role="dialog"], [role="alertdialog"]')
       ) {
         return;
       }
@@ -292,15 +318,54 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
           const rawText = selectedItems.map((item) => item.raw).join('\n');
           await writeText(rawText);
         }
-      } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA') {
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA') {
         e.preventDefault();
         selectAllVisible(visibleItems);
+        return;
+      }
+
+      if (
+        e.key === 'Backspace' ||
+        e.key === 'Delete' ||
+        e.code === 'Backspace' ||
+        e.code === 'Delete'
+      ) {
+        if (selectedConfigIds.length > 0 && !isSubscription) {
+          e.preventDefault();
+          setIsDeleteConfirmOpen(true);
+        }
+        return;
+      }
+
+      if (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter') {
+        if (selectedConfigIds.length > 0) {
+          const targetItem =
+            (lastSelectedId ? visibleItems.find((item) => item.id === lastSelectedId) : null) ||
+            visibleItems.find((item) => selectedSet.has(item.id));
+          if (targetItem) {
+            e.preventDefault();
+            void handleConnect(targetItem);
+          }
+        }
+        return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [visibleItems, selectedSet, selectAllVisible, addConfigsFromText]);
+  }, [
+    visibleItems,
+    selectedSet,
+    selectedConfigIds,
+    lastSelectedId,
+    isSubscription,
+    selectAllVisible,
+    deleteSelectedConfigs,
+    shareConfig,
+  ]);
 
   const renderDelayCell = (item: ConfigItem) => {
     if (item.realDelay === -1 || item.status === 'disconnected') {
@@ -425,214 +490,216 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
-      {/* Table Header */}
-      <div className="h-7 border-b flex items-center text-[11px] font-semibold bg-card/50 border-border/50 text-muted-foreground select-none px-4 shrink-0 justify-start text-start">
-        <div className="w-10 flex items-center justify-start pe-2">
-          <Checkbox
-            checked={isAllSelected}
-            onCheckedChange={(checked) => handleHeaderCheckboxChange(!!checked)}
-          />
-        </div>
-        <div className="w-10 text-start">#</div>
-        <div className="w-28 text-start">{t('protocol')}</div>
-        <div className="flex-1 truncate text-start pe-2">{t('remark')}</div>
-        <div className="w-56 truncate text-start pe-2">{t('address')}</div>
-        <div
-          className="w-24 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
-          title={t('secondarySortHint')}
-          onClick={() => handleSort('ping')}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            handleSecondarySort('ping');
-          }}
-        >
-          {t('ping')}
-          {renderSortIcon('ping')}
-        </div>
-        <div
-          className="w-32 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
-          title={t('secondarySortHint')}
-          onClick={() => handleSort('country')}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            handleSecondarySort('country');
-          }}
-        >
-          {t('country')}
-          {renderSortIcon('country')}
-        </div>
-        <div
-          className="w-24 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
-          title={t('secondarySortHint')}
-          onClick={() => handleSort('speed')}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            handleSecondarySort('speed');
-          }}
-        >
-          {t('speed')}
-          {renderSortIcon('speed')}
-        </div>
-        <div
-          className="w-28 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
-          title={t('secondarySortHint')}
-          onClick={() => handleSort('sites')}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            handleSecondarySort('sites');
-          }}
-        >
-          {t('sites')}
-          {renderSortIcon('sites')}
-        </div>
-        {settings.showTrafficStats && (
-          <>
-            <div className="w-24 text-start">{t('todayUsage')}</div>
-            <div className="w-24 text-start">{t('totalUsage')}</div>
-          </>
-        )}
-      </div>
-
-      {/* Virtualized Rows Container */}
-      <div ref={parentRef} className="flex-1 overflow-auto">
-        {visibleItems.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-xs text-muted-foreground/70 p-6 space-y-2">
-            <p>{t('noConfigsInTab')}</p>
-            <p className="text-[11px]">
-              {isSubscription ? t('subscriptionEmptyHint') : t('pasteInstruction')}
-            </p>
+    <div className="flex-1 flex flex-col h-full overflow-x-auto overflow-y-hidden bg-transparent select-none">
+      <div className="min-w-[680px] flex-1 flex flex-col h-full">
+        {/* Table Header */}
+        <div className="h-7 border-b flex items-center text-[11px] font-semibold bg-card/50 border-border/50 text-muted-foreground select-none px-3 sm:px-4 shrink-0 justify-start text-start">
+          <div className="w-9 shrink-0 flex items-center justify-start pe-2">
+            <Checkbox
+              checked={isAllSelected}
+              onCheckedChange={(checked) => handleHeaderCheckboxChange(!!checked)}
+            />
           </div>
-        ) : (
+          <div className="w-8 shrink-0 text-start">#</div>
+          <div className="w-20 sm:w-24 shrink-0 text-start">{t('protocol')}</div>
+          <div className="flex-1 min-w-[90px] truncate text-start pe-2">{t('remark')}</div>
+          <div className="w-44 sm:w-52 shrink-0 truncate text-start pe-2">{t('address')}</div>
           <div
-            style={{
-              height: `${virtualizer.getTotalSize()}px`,
-              width: '100%',
-              position: 'relative',
+            className="w-20 shrink-0 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
+            title={t('secondarySortHint')}
+            onClick={() => handleSort('ping')}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              handleSecondarySort('ping');
             }}
           >
-            {virtualizer.getVirtualItems().map((virtualRow) => {
-              const item = visibleItems[virtualRow.index];
-              const isSelected = selectedSet.has(item.id);
-              const isActive = settings.activeConfigId === item.id;
-
-              return (
-                <ContextMenu key={item.id}>
-                  <ContextMenuTrigger asChild>
-                    <div
-                      onClick={(e) =>
-                        handleConfigClick(
-                          item.id,
-                          e.ctrlKey || e.metaKey,
-                          e.shiftKey,
-                          visibleItems
-                        )
-                      }
-                      onDoubleClick={() => handleConnect(item)}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: `${virtualRow.size}px`,
-                        transform: `translateY(${virtualRow.start}px)`,
-                      }}
-                      className={`flex items-center text-xs border-b border-border/30 cursor-pointer h-7 text-xs leading-7 select-none transition-colors text-start justify-start ps-4 pe-2.5 ${
-                        isActive
-                          ? 'bg-emerald-500/20 dark:bg-emerald-500/25 font-semibold text-emerald-950 dark:text-emerald-100'
-                          : isSelected
-                          ? 'bg-blue-500/20 dark:bg-blue-600/25 text-blue-950 dark:text-blue-100 hover:bg-blue-500/30 dark:hover:bg-blue-600/35 font-medium'
-                          : 'hover:bg-muted text-foreground'
-                      }`}
-                    >
-                      <div
-                        className="w-10 flex items-center justify-start pe-2"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={() =>
-                            handleConfigClick(item.id, true, false, visibleItems)
-                          }
-                        />
-                      </div>
-
-                      <div className="w-10 text-start text-muted-foreground/70 text-[11px] font-mono">
-                        {virtualRow.index + 1}
-                      </div>
-
-                      <div className="w-28 text-start font-mono font-semibold uppercase text-[11px] text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                        {isActive && (
-                          <Zap className="w-3.5 h-3.5 text-emerald-500 fill-emerald-500" />
-                        )}
-                        {item.protocol}
-                      </div>
-
-                      <div className="flex-1 truncate font-medium text-start pe-2">
-                        {item.name}
-                      </div>
-
-                      <div className="w-56 truncate text-start pe-2 text-[11px] text-muted-foreground font-mono">
-                        {item.address}:{item.port}
-                      </div>
-
-                      <div className="w-24 text-start overflow-hidden">
-                        {renderDelayCell(item)}
-                      </div>
-
-                      <div className="w-32 text-start overflow-hidden">
-                        {renderCountryCell(item)}
-                      </div>
-
-                      <div className="w-24 text-start font-mono h-full">
-                        {renderSpeedPair(item.downloadSpeed, item.uploadSpeed)}
-                      </div>
-
-                      <div className="w-28 text-start h-full flex items-center">
-                        {renderSitesCell(item)}
-                      </div>
-
-                      {settings.showTrafficStats && (
-                        <>
-                          <div className="w-24 text-start font-mono h-full">
-                            {renderTraffic(
-                              item.trafficToday?.tx || 0,
-                              item.trafficToday?.rx || 0
-                            )}
-                          </div>
-                          <div className="w-24 text-start font-mono h-full">
-                            {renderTraffic(
-                              item.trafficTotal?.tx || 0,
-                              item.trafficTotal?.rx || 0
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </ContextMenuTrigger>
-                  <ContextMenuContent className="min-w-44">
-                    <ContextMenuItem
-                      onSelect={() => {
-                        void handleConnect(item);
-                      }}
-                    >
-                      <Play className="size-3.5" />
-                      {t('setAsActive')}
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      onSelect={() => {
-                        setShareConfig(item);
-                      }}
-                    >
-                      <Share2 className="size-3.5" />
-                      {t('share')}
-                    </ContextMenuItem>
-                  </ContextMenuContent>
-                </ContextMenu>
-              );
-            })}
+            {t('ping')}
+            {renderSortIcon('ping')}
           </div>
-        )}
+          <div
+            className="w-28 shrink-0 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
+            title={t('secondarySortHint')}
+            onClick={() => handleSort('country')}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              handleSecondarySort('country');
+            }}
+          >
+            {t('country')}
+            {renderSortIcon('country')}
+          </div>
+          <div
+            className="w-20 shrink-0 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
+            title={t('secondarySortHint')}
+            onClick={() => handleSort('speed')}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              handleSecondarySort('speed');
+            }}
+          >
+            {t('speed')}
+            {renderSortIcon('speed')}
+          </div>
+          <div
+            className="w-24 shrink-0 text-start cursor-pointer hover:text-foreground transition-colors flex items-center"
+            title={t('secondarySortHint')}
+            onClick={() => handleSort('sites')}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              handleSecondarySort('sites');
+            }}
+          >
+            {t('sites')}
+            {renderSortIcon('sites')}
+          </div>
+          {settings.showTrafficStats && (
+            <>
+              <div className="w-20 shrink-0 text-start">{t('todayUsage')}</div>
+              <div className="w-20 shrink-0 text-start">{t('totalUsage')}</div>
+            </>
+          )}
+        </div>
+
+        {/* Virtualized Rows Container */}
+        <div ref={parentRef} className="flex-1 overflow-y-auto overflow-x-hidden">
+          {visibleItems.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-xs text-muted-foreground/70 p-6 space-y-2">
+              <p>{t('noConfigsInTab')}</p>
+              <p className="text-[11px]">
+                {isSubscription ? t('subscriptionEmptyHint') : t('pasteInstruction')}
+              </p>
+            </div>
+          ) : (
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {virtualizer.getVirtualItems().map((virtualRow) => {
+                const item = visibleItems[virtualRow.index];
+                const isSelected = selectedSet.has(item.id);
+                const isActive = settings.activeConfigId === item.id;
+
+                return (
+                  <ContextMenu key={item.id}>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        onClick={(e) =>
+                          handleConfigClick(
+                            item.id,
+                            e.ctrlKey || e.metaKey,
+                            e.shiftKey,
+                            visibleItems
+                          )
+                        }
+                        onDoubleClick={() => handleConnect(item)}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: `${virtualRow.size}px`,
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                        className={`flex items-center text-xs border-b border-border/30 cursor-pointer h-7 text-xs leading-7 select-none transition-colors text-start justify-start ps-3 sm:ps-4 pe-2.5 ${
+                          isActive
+                            ? 'bg-emerald-500/20 dark:bg-emerald-500/25 font-semibold text-emerald-950 dark:text-emerald-100'
+                            : isSelected
+                            ? 'bg-blue-500/20 dark:bg-blue-600/25 text-blue-950 dark:text-blue-100 hover:bg-blue-500/30 dark:hover:bg-blue-600/35 font-medium'
+                            : 'hover:bg-muted text-foreground'
+                        }`}
+                      >
+                        <div
+                          className="w-9 shrink-0 flex items-center justify-start pe-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() =>
+                              handleConfigClick(item.id, true, false, visibleItems)
+                            }
+                          />
+                        </div>
+
+                        <div className="w-8 shrink-0 text-start text-muted-foreground/70 text-[11px] font-mono">
+                          {virtualRow.index + 1}
+                        </div>
+
+                        <div className="w-20 sm:w-24 shrink-0 text-start font-mono font-semibold uppercase text-[11px] text-blue-600 dark:text-blue-400 flex items-center gap-1 truncate">
+                          {isActive && (
+                            <Zap className="w-3.5 h-3.5 text-emerald-500 fill-emerald-500 shrink-0" />
+                          )}
+                          <span className="truncate">{item.protocol}</span>
+                        </div>
+
+                        <div className="flex-1 min-w-[90px] truncate font-medium text-start pe-2">
+                          {item.name}
+                        </div>
+
+                        <div className="w-44 sm:w-52 shrink-0 truncate text-start pe-2 text-[11px] text-muted-foreground font-mono">
+                          {item.address}:{item.port}
+                        </div>
+
+                        <div className="w-20 shrink-0 text-start overflow-hidden">
+                          {renderDelayCell(item)}
+                        </div>
+
+                        <div className="w-28 shrink-0 text-start overflow-hidden">
+                          {renderCountryCell(item)}
+                        </div>
+
+                        <div className="w-20 shrink-0 text-start font-mono h-full">
+                          {renderSpeedPair(item.downloadSpeed, item.uploadSpeed)}
+                        </div>
+
+                        <div className="w-24 shrink-0 text-start h-full flex items-center">
+                          {renderSitesCell(item)}
+                        </div>
+
+                        {settings.showTrafficStats && (
+                          <>
+                            <div className="w-20 shrink-0 text-start font-mono h-full">
+                              {renderTraffic(
+                                item.trafficToday?.tx || 0,
+                                item.trafficToday?.rx || 0
+                              )}
+                            </div>
+                            <div className="w-20 shrink-0 text-start font-mono h-full">
+                              {renderTraffic(
+                                item.trafficTotal?.tx || 0,
+                                item.trafficTotal?.rx || 0
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="min-w-44">
+                      <ContextMenuItem
+                        onSelect={() => {
+                          void handleConnect(item);
+                        }}
+                      >
+                        <Play className="size-3.5" />
+                        {t('setAsActive')}
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onSelect={() => {
+                          setShareConfig(item);
+                        }}
+                      >
+                        <Share2 className="size-3.5" />
+                        {t('share')}
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       <ShareConfigDialog
@@ -642,6 +709,29 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
           if (!open) setShareConfig(null);
         }}
       />
+
+      <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('deleteConfigsTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('confirmDeleteConfigs', { count: selectedConfigIds.length })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                deleteSelectedConfigs();
+                setIsDeleteConfirmOpen(false);
+              }}
+              className="bg-red-600 text-white hover:bg-red-700"
+            >
+              {t('delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {sortTip && (
         <div className="fixed bottom-14 left-1/2 -translate-x-1/2 max-w-[min(90vw,28rem)] bg-slate-900 text-white text-xs px-3 py-2 rounded shadow-lg border border-slate-700 z-50 text-center leading-relaxed">

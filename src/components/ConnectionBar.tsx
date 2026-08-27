@@ -161,41 +161,42 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
   const activeConfig = configs.find(c => c.id === settings.activeConfigId);
 
   return (
-    <div className="h-8 border-t flex items-center justify-between px-3 bg-card/30 border-border/50 text-xs shrink-0 select-none">
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5 font-mono">
-          <Globe className={`w-3.5 h-3.5 ${settings.activeConfigId ? 'text-emerald-500' : 'text-muted-foreground/50'}`} />
-          <span className="text-muted-foreground">{t('port')}</span>
+    <div className="h-8 border-t flex items-center justify-between px-2 sm:px-3 bg-card/30 border-border/50 text-xs shrink-0 select-none gap-2 overflow-x-auto overflow-y-hidden">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 font-mono shrink-0">
+          <Globe className={`w-3.5 h-3.5 shrink-0 ${settings.activeConfigId ? 'text-emerald-500' : 'text-muted-foreground/50'}`} />
+          <span className="text-muted-foreground hidden sm:inline">{t('port')}</span>
           <span className={`font-semibold ${settings.activeConfigId ? 'text-foreground' : 'text-muted-foreground'}`}>
             {settings.localPort}
           </span>
         </div>
 
-        <div className="h-4 w-[1px] bg-border" />
+        <div className="h-4 w-[1px] bg-border shrink-0" />
 
         {settings.activeConfigId && (
           <>
-            <div className="flex items-center gap-1.5 max-w-[200px] truncate">
-              <Plug className="w-3.5 h-3.5 text-blue-500" />
+            <div className="flex items-center gap-1.5 max-w-[110px] sm:max-w-[180px] md:max-w-[220px] truncate shrink-0">
+              <Plug className="w-3.5 h-3.5 text-blue-500 shrink-0" />
               <span className="truncate font-semibold text-blue-500">{activeConfig?.name || 'Unknown'}</span>
             </div>
             
             <button
               onClick={handleStop}
-              className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
+              title={t('disconnect')}
+              className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors shrink-0"
             >
-              <Power className="w-3 h-3" />
-              <span>{t('disconnect')}</span>
+              <Power className="w-3 h-3 shrink-0" />
+              <span className="hidden sm:inline">{t('disconnect')}</span>
             </button>
           </>
         )}
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 border-r pr-4 border-border/50">
-          <Label htmlFor="tun-mode" className="text-muted-foreground flex items-center gap-1 cursor-pointer text-xs">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            {t('tunMode', 'Tun Mode')}
+      <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 ltr:border-r ltr:pr-2 sm:ltr:pr-4 rtl:border-l rtl:pl-2 sm:rtl:pl-4 border-border/50 shrink-0">
+          <Label htmlFor="tun-mode" className="text-muted-foreground flex items-center gap-1 cursor-pointer text-xs shrink-0">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden sm:inline">{t('tunMode', 'Tun Mode')}</span>
           </Label>
           <Switch
             size="sm"
@@ -204,10 +205,10 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
             onCheckedChange={handleTunChange}
           />
         </div>
-        <span className="text-muted-foreground">{t('systemProxy')}:</span>
+        <span className="text-muted-foreground hidden md:inline shrink-0">{t('systemProxy')}:</span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-6 text-[11px] px-2 bg-muted/50 hover:bg-muted">
+            <Button variant="ghost" size="sm" className="h-6 text-[11px] px-1.5 sm:px-2 bg-muted/50 hover:bg-muted shrink-0">
               {settings.systemProxyMode === 'set' && t('setProxy')}
               {settings.systemProxyMode === 'clear' && t('clearProxy')}
               {settings.systemProxyMode === 'dont_change' && t('dontChangeProxy')}

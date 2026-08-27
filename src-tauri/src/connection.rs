@@ -4,6 +4,7 @@ use std::sync::Mutex;
 #[cfg(target_os = "linux")]
 use std::io::Write;
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_os = "linux"))]
 use sysproxy::Sysproxy;
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;

@@ -585,7 +585,7 @@ export const useConfigStore = create<ConfigState>()(
     activeConfigId: null,
     showTrafficStats: true,
     hasSeenSecondarySortTip: false,
-    siteTestSelectedIds: ['gemini', 'colab'],
+    siteTestSelectedIds: ['gemini', 'colab', 'overleaf'],
   },
 
   updateSettings: (newSettings) => {
@@ -645,14 +645,20 @@ export const useConfigStore = create<ConfigState>()(
               persistedState.settings?.hasSeenSecondarySortTip ?? false,
             siteTestSelectedIds: (() => {
               const persisted = persistedState.settings?.siteTestSelectedIds;
-              const allIds = ['gemini', 'colab'];
+              const allIds = ['gemini', 'colab', 'overleaf'];
               if (!Array.isArray(persisted) || persisted.length === 0) {
                 return allIds;
               }
-              if (persisted.length === 1 && persisted[0] === 'gemini') {
+              const isOldDefault =
+                (persisted.length === 1 && (persisted[0] === 'gemini' || persisted[0] === 'colab')) ||
+                (persisted.length === 2 && persisted.includes('gemini') && persisted.includes('colab'));
+              if (isOldDefault) {
                 return allIds;
               }
               const valid = persisted.filter((id: string) => allIds.includes(id));
+              if (!valid.includes('overleaf')) {
+                valid.push('overleaf');
+              }
               return valid.length > 0 ? valid : allIds;
             })(),
           },
