@@ -43,6 +43,25 @@ export interface ConfigItem {
   trafficTotal?: { tx: number; rx: number };
 }
 
+export interface SubscriptionInfo {
+  /** Raw summary string from dummy config or header (e.g. "📅 15 Days - 📊 75.66 GB / 250.0 GB") */
+  raw?: string;
+  /** Remaining days as string or human-readable (e.g. "15 Days" or "15 روز") */
+  remainingDays?: string;
+  /** Expiration date string (e.g. "2026-09-15") */
+  expireDate?: string;
+  /** Upload traffic in bytes */
+  upload?: number;
+  /** Download traffic in bytes */
+  download?: number;
+  /** Used traffic formatted string (e.g. "75.66 GB") */
+  usedTraffic?: string;
+  /** Total traffic formatted string (e.g. "250.0 GB") */
+  totalTraffic?: string;
+  /** Percentage used (0 to 100) */
+  percentUsed?: number;
+}
+
 export interface Group {
   id: string;
   name: string;
@@ -51,6 +70,8 @@ export interface Group {
   subscriptionUrl?: string;
   /** Last successful subscription refresh (ms). */
   lastUpdated?: number;
+  /** Subscription metadata / info (traffic, expiration, remaining days) */
+  subscriptionInfo?: SubscriptionInfo;
 }
 
 export function isSubscriptionGroup(group: Group | undefined | null): boolean {

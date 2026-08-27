@@ -11,6 +11,11 @@ import {
 } from '../types/config';
 import { parseBatchConfigs } from '../lib/parsers';
 import { decodeSubscriptionBody } from '../lib/subscription';
+import {
+  extractSubscriptionInfoFromConfigs,
+  isSubscriptionInfoConfig,
+  parseSubscriptionInfo,
+} from '../lib/subscriptionInfo';
 import i18n from '../lib/i18n';
 
 const DEFAULT_TEST_URLS = [
@@ -227,25 +232,42 @@ export const useConfigStore = create<ConfigState>()(
       throw new Error('Group has no subscription URL');
     }
 
-    const body = await invoke<string>('fetch_subscription', { url });
-    const text = decodeSubscriptionBody(body);
+    const res = await invoke<{ body: string; userinfo?: string } | string>(
+      'fetch_subscription',
+      { url }
+    );
+    const rawBody = typeof res === 'string' ? res : res.body;
+    const httpUserInfo = typeof res === 'object' ? res.userinfo : undefined;
+
+    const text = decodeSubscriptionBody(rawBody);
     const parsed = parseBatchConfigs(text, groupId);
-    if (parsed.length === 0) {
+    const { realConfigs, subscriptionInfo } = extractSubscriptionInfoFromConfigs(
+      parsed,
+      httpUserInfo
+    );
+
+    if (realConfigs.length === 0 && parsed.length === 0) {
       throw new Error('No valid configs found in subscription');
     }
 
     set((state) => ({
       configs: [
         ...state.configs.filter((c) => c.groupId !== groupId),
-        ...parsed,
+        ...realConfigs,
       ],
       groups: state.groups.map((g) =>
-        g.id === groupId ? { ...g, lastUpdated: Date.now() } : g
+        g.id === groupId
+          ? {
+              ...g,
+              lastUpdated: Date.now(),
+              subscriptionInfo: subscriptionInfo || g.subscriptionInfo,
+            }
+          : g
       ),
       selectedConfigIds: [],
       lastSelectedId: null,
     }));
-    return parsed.length;
+    return realConfigs.length;
   },
 
   configs: [],
@@ -277,10 +299,23 @@ export const useConfigStore = create<ConfigState>()(
     const parsed = parseBatchConfigs(rawText, groupId);
     if (parsed.length === 0) return 0;
 
+    const { realConfigs, subscriptionInfo } = extractSubscriptionInfoFromConfigs(parsed);
+    if (realConfigs.length === 0) return 0;
+
     set((state) => ({
-      configs: [...state.configs, ...parsed],
+      configs: [...state.configs, ...realConfigs],
+      groups: subscriptionInfo
+        ? state.groups.map((g) =>
+            g.id === groupId
+              ? {
+                  ...g,
+                  subscriptionInfo: subscriptionInfo || g.subscriptionInfo,
+                }
+              : g
+          )
+        : state.groups,
     }));
-    return parsed.length;
+    return realConfigs.length;
   },
 
   deleteSelectedConfigs: () => {
@@ -623,15 +658,40 @@ export const useConfigStore = create<ConfigState>()(
       name: 'v2ray-test-storage',
       storage: createJSONStorage(() => idbStorage),
       merge: (persistedState: any, currentState) => {
-        const groups = (persistedState?.groups || currentState.groups).map(
+        let rawConfigs: ConfigItem[] = persistedState?.configs || currentState.configs;
+        let groups = (persistedState?.groups || currentState.groups).map(
           (g: Group) => ({
             ...g,
             subscriptionUrl: g.subscriptionUrl?.trim() || undefined,
           })
         );
+
+        // Migrate and extract any existing dummy configs stored in IDB
+        const dummyConfigs = rawConfigs.filter(isSubscriptionInfoConfig);
+        if (dummyConfigs.length > 0) {
+          for (const dummy of dummyConfigs) {
+            const parsedInfo = parseSubscriptionInfo(dummy.name);
+            if (parsedInfo) {
+              groups = groups.map((g: Group) =>
+                g.id === dummy.groupId
+                  ? {
+                      ...g,
+                      subscriptionInfo: {
+                        ...(g.subscriptionInfo || {}),
+                        ...parsedInfo,
+                      },
+                    }
+                  : g
+              );
+            }
+          }
+          rawConfigs = rawConfigs.filter((c) => !isSubscriptionInfoConfig(c));
+        }
+
         return {
           ...currentState,
           ...persistedState,
+          configs: rawConfigs,
           groups,
           // TUN must never persist across launches
           tunMode: false,
