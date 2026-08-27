@@ -36,6 +36,17 @@ export const startProxyWithConfig = async (
         flow: item.flow,
         mode: item.mode,
         extra: item.extra,
+        encryption:
+          item.encryption ||
+          (item.raw && item.raw.startsWith('vless://')
+            ? (() => {
+                try {
+                  return new URL(item.raw.replace('vless://', 'http://')).searchParams.get('encryption') || undefined;
+                } catch {
+                  return undefined;
+                }
+              })()
+            : undefined),
       },
       localPort,
       systemProxyMode,

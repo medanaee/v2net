@@ -36,6 +36,17 @@ const startBatchTestToRust = async (
     flow: c.flow,
     mode: c.mode,
     extra: c.extra,
+    encryption:
+      c.encryption ||
+      (c.raw && c.raw.startsWith('vless://')
+        ? (() => {
+            try {
+              return new URL(c.raw.replace('vless://', 'http://')).searchParams.get('encryption') || undefined;
+            } catch {
+              return undefined;
+            }
+          })()
+        : undefined),
   }));
 
   const siteTargets =

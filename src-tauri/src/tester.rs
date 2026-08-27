@@ -34,6 +34,7 @@ pub struct TestTarget {
     pub flow: Option<String>,
     pub mode: Option<String>,
     pub extra: Option<serde_json::Value>,
+    pub encryption: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

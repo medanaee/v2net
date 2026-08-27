@@ -27,6 +27,7 @@ export function parseVLess(rawLink: string, groupId: string, id: string): Config
     const alpn = params.get('alpn') || '';
     const flow = params.get('flow') || '';
     const mode = params.get('mode') || '';
+    const encryption = params.get('encryption') || undefined;
     
     let extraParsed: Record<string, any> | undefined = undefined;
     const extraStr = params.get('extra');
@@ -59,6 +60,7 @@ export function parseVLess(rawLink: string, groupId: string, id: string): Config
       flow,
       mode,
       extra: extraParsed,
+      encryption,
       raw: trimmed,
       status: 'untested',
       realDelay: null,
@@ -108,6 +110,12 @@ export function vlessToXrayOutbound(config: ConfigItem): object {
       serviceName: config.path || '',
       multiMode: false,
     };
+  } else if (config.network === 'xhttp') {
+    streamSettings.xhttpSettings = {
+      ...(config.path ? { path: config.path } : {}),
+      ...(config.mode ? { mode: config.mode } : {}),
+      ...(config.extra || {}),
+    };
   }
 
   return {
@@ -120,7 +128,7 @@ export function vlessToXrayOutbound(config: ConfigItem): object {
           users: [
             {
               id: config.uuid,
-              encryption: 'none',
+              encryption: config.encryption || 'none',
             },
           ],
         },

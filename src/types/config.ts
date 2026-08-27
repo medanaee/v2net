@@ -25,6 +25,7 @@ export interface ConfigItem {
   flow?: string; // XTLS flow (xtls-rprx-vision, etc)
   mode?: string; // stream mode for xhttp
   extra?: Record<string, any>; // extra settings for xhttp
+  encryption?: string; // vless encryption (e.g. mlkem768x25519plus...)
   raw: string; // Original URL link
   
   // Realtime test results

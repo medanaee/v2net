@@ -49,6 +49,13 @@ fn build_stream_settings(target: &TestTarget) -> Value {
         stream_settings["httpSettings"] = http_settings;
     } else if network == "xhttp" {
         let mut xhttp_settings = json!({});
+        let mut xhttp_host = target.host.clone().unwrap_or_default();
+        if xhttp_host.is_empty() {
+            xhttp_host = target.sni.clone().unwrap_or_default();
+        }
+        if !xhttp_host.is_empty() {
+            xhttp_settings["host"] = json!(xhttp_host);
+        }
         if let Some(path) = &target.path {
             if !path.is_empty() {
                 xhttp_settings["path"] = json!(path);
@@ -60,11 +67,7 @@ fn build_stream_settings(target: &TestTarget) -> Value {
             }
         }
         if let Some(extra) = &target.extra {
-            if let Some(obj) = extra.as_object() {
-                for (k, v) in obj {
-                    xhttp_settings[k] = v.clone();
-                }
-            }
+            xhttp_settings["extra"] = extra.clone();
         }
         stream_settings["xhttpSettings"] = xhttp_settings;
     } else if network == "raw" {
@@ -134,9 +137,14 @@ fn build_stream_settings(target: &TestTarget) -> Value {
                 "show": false,
                 "spiderX": ""
             });
-            if let Some(sni) = &target.sni {
-                reality_settings["serverName"] = json!(sni);
+            let mut server_name = target.sni.clone().unwrap_or_default();
+            if server_name.is_empty() {
+                server_name = target.host.clone().unwrap_or_default();
             }
+            if server_name.is_empty() {
+                server_name = target.address.clone();
+            }
+            reality_settings["serverName"] = json!(server_name);
             if let Some(pbk) = &target.pbk {
                 reality_settings["publicKey"] = json!(pbk);
             }
@@ -194,12 +202,17 @@ pub fn generate_xray_config(target: &TestTarget, local_port: u16) -> Value {
             outbound["settings"] = json!({ "vnext": [vnext] });
         }
         "vless" => {
+            let encryption = target
+                .encryption
+                .as_deref()
+                .filter(|e| !e.is_empty())
+                .unwrap_or("none");
             let vnext = json!({
                 "address": target.address,
                 "port": target.port,
                 "users": [{
                     "id": target.uuid.clone().unwrap_or_default(),
-                    "encryption": "none",
+                    "encryption": encryption,
                     "flow": target.flow.clone().unwrap_or_default()
                 }]
             });
@@ -291,12 +304,17 @@ pub fn generate_xray_config_batch(targets_with_ports: &[(TestTarget, u16)]) -> V
                 outbound["settings"] = json!({ "vnext": [vnext] });
             }
             "vless" => {
+                let encryption = target
+                    .encryption
+                    .as_deref()
+                    .filter(|e| !e.is_empty())
+                    .unwrap_or("none");
                 let vnext = json!({
                     "address": target.address,
                     "port": target.port,
                     "users": [{
                         "id": target.uuid.clone().unwrap_or_default(),
-                        "encryption": "none",
+                        "encryption": encryption,
                         "flow": target.flow.clone().unwrap_or_default()
                     }]
                 });
@@ -383,12 +401,17 @@ pub fn generate_xray_config_mixed(
             outbound["settings"] = json!({ "vnext": [vnext] });
         }
         "vless" => {
+            let encryption = target
+                .encryption
+                .as_deref()
+                .filter(|e| !e.is_empty())
+                .unwrap_or("none");
             let vnext = json!({
                 "address": target.address,
                 "port": target.port,
                 "users": [{
                     "id": target.uuid.clone().unwrap_or_default(),
-                    "encryption": "none",
+                    "encryption": encryption,
                     "flow": target.flow.clone().unwrap_or_default()
                 }]
             });
@@ -636,6 +659,7 @@ mod tests {
             flow: None,
             mode: None,
             extra: None,
+            encryption: None,
         }
     }
 
