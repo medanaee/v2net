@@ -249,7 +249,7 @@ export const TestingBar: React.FC = () => {
   );
 
   return (
-    <div className="h-12 border-t flex items-center justify-between px-2 bg-transparent border-border/50 text-xs select-none shrink-0 gap-2 overflow-x-auto overflow-y-hidden">
+    <div className="h-12 border-t flex items-center justify-between px-2 bg-transparent border-border/50 text-xs select-none shrink-0 gap-2 overflow-hidden">
       <div className="flex items-center gap-2 shrink-0">
         <div className="flex items-center bg-muted/50 border border-border/50 rounded-md p-0.5 shrink-0">
           {modeBtn('realDelay', <Activity className="w-3.5 h-3.5 shrink-0" />, t('realDelayTest'))}

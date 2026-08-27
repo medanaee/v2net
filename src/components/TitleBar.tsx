@@ -113,6 +113,20 @@ export const TitleBar: React.FC = () => {
     }
   };
 
+  const handleRefreshActiveGroup = async () => {
+    if (refreshing || !activeGroupId) return;
+    setRefreshing(true);
+    try {
+      const count = await refreshSubscription(activeGroupId);
+      showToast(`${count} ${t('subscriptionRefreshed')}`);
+    } catch (e) {
+      console.error(e);
+      showToast(t('subscriptionRefreshFailed'));
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const activeGroup = groups.find((g) => g.id === activeGroupId) || groups[0];
   const activeIsSub = isSubscriptionGroup(activeGroup);
 
@@ -154,6 +168,19 @@ export const TitleBar: React.FC = () => {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {activeIsSub && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-sky-500 hover:bg-sky-500/10 shrink-0"
+              title={t('refreshSubscription')}
+              disabled={refreshing}
+              onClick={handleRefreshActiveGroup}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            </Button>
+          )}
 
           <Button
             variant="secondary"

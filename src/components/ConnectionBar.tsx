@@ -161,8 +161,8 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
   const activeConfig = configs.find(c => c.id === settings.activeConfigId);
 
   return (
-    <div className="h-8 border-t flex items-center justify-between px-2 sm:px-3 bg-card/30 border-border/50 text-xs shrink-0 select-none gap-2 overflow-x-auto overflow-y-hidden">
-      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+    <div className="h-8 border-t flex items-center justify-between px-2 sm:px-3 bg-card/30 border-border/50 text-xs shrink-0 select-none gap-1.5 sm:gap-2 overflow-hidden">
+      <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 shrink overflow-hidden">
         <div className="flex items-center gap-1.5 font-mono shrink-0">
           <Globe className={`w-3.5 h-3.5 shrink-0 ${settings.activeConfigId ? 'text-emerald-500' : 'text-muted-foreground/50'}`} />
           <span className="text-muted-foreground hidden sm:inline">{t('port')}</span>
@@ -171,11 +171,11 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
           </span>
         </div>
 
-        <div className="h-4 w-[1px] bg-border shrink-0" />
+        {settings.activeConfigId && <div className="h-4 w-[1px] bg-border shrink-0" />}
 
         {settings.activeConfigId && (
           <>
-            <div className="flex items-center gap-1.5 max-w-[110px] sm:max-w-[180px] md:max-w-[220px] truncate shrink-0">
+            <div className="flex items-center gap-1.5 max-w-[90px] sm:max-w-[160px] md:max-w-[220px] truncate min-w-0 shrink">
               <Plug className="w-3.5 h-3.5 text-blue-500 shrink-0" />
               <span className="truncate font-semibold text-blue-500">{activeConfig?.name || 'Unknown'}</span>
             </div>
@@ -192,8 +192,8 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
         )}
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-        <div className="flex items-center gap-1.5 sm:gap-2 ltr:border-r ltr:pr-2 sm:ltr:pr-4 rtl:border-l rtl:pl-2 sm:rtl:pl-4 border-border/50 shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-4 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 ltr:border-r ltr:pr-1.5 sm:ltr:pr-3 rtl:border-l rtl:pl-1.5 sm:rtl:pl-3 border-border/50 shrink-0">
           <Label htmlFor="tun-mode" className="text-muted-foreground flex items-center gap-1 cursor-pointer text-xs shrink-0">
             <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden sm:inline">{t('tunMode', 'Tun Mode')}</span>

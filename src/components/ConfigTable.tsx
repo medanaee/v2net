@@ -490,10 +490,10 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-x-auto overflow-y-hidden bg-transparent select-none">
-      <div className="min-w-[680px] flex-1 flex flex-col h-full">
+    <div className="flex-1 flex flex-col h-full w-full overflow-x-auto overflow-y-hidden bg-transparent select-none">
+      <div className="flex flex-col h-full min-w-260">
         {/* Table Header */}
-        <div className="h-7 border-b flex items-center text-[11px] font-semibold bg-card/50 border-border/50 text-muted-foreground select-none px-3 sm:px-4 shrink-0 justify-start text-start">
+        <div className="h-7 border-b flex items-center overflow-hidden text-[11px] font-semibold bg-card/50 border-border/50 text-muted-foreground select-none px-3 sm:px-4 shrink-0 justify-start text-start">
           <div className="w-9 shrink-0 flex items-center justify-start pe-2">
             <Checkbox
               checked={isAllSelected}
@@ -561,7 +561,7 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
         </div>
 
         {/* Virtualized Rows Container */}
-        <div ref={parentRef} className="flex-1 overflow-y-auto overflow-x-hidden">
+        <div ref={parentRef} className="overflow-y-auto overflow-x-hidden">
           {visibleItems.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-xs text-muted-foreground/70 p-6 space-y-2">
               <p>{t('noConfigsInTab')}</p>
