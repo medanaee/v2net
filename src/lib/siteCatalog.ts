@@ -48,19 +48,7 @@ export function resolveSelectedSites(selectedIds: string[] | undefined | null): 
   if (!selectedIds || selectedIds.length === 0) {
     return SITE_CATALOG;
   }
-  const ids = [...selectedIds];
-  // If stored settings are from an earlier version that didn't know about newly added sites (e.g. colab or overleaf):
-  for (const site of SITE_CATALOG) {
-    if (!ids.includes(site.id)) {
-      const isKnownOldDefault =
-        (ids.length === 1 && ids[0] === 'gemini') ||
-        (ids.length === 2 && ids.includes('gemini') && ids.includes('colab'));
-      if (isKnownOldDefault) {
-        ids.push(site.id);
-      }
-    }
-  }
-  const resolved = ids
+  const resolved = selectedIds
     .map((id) => getSiteById(id))
     .filter((s): s is SiteDef => !!s);
   return resolved.length > 0 ? resolved : SITE_CATALOG;
