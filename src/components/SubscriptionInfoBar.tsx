@@ -47,9 +47,9 @@ export const SubscriptionInfoBar: React.FC = () => {
                 title={info.expireDate ? `${t('expires')}: ${info.expireDate}` : undefined}
               >
                 <Calendar className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                <span className="font-semibold">{info.remainingDays || info.expireDate}</span>
+                <span className="font-semibold" dir="ltr">{info.remainingDays || info.expireDate}</span>
                 {info.remainingDays && info.expireDate && (
-                  <span className="text-[10px] opacity-70 hidden md:inline">
+                  <span className="text-[10px] opacity-70 hidden md:inline" dir="ltr">
                     ({info.expireDate})
                   </span>
                 )}
@@ -62,10 +62,10 @@ export const SubscriptionInfoBar: React.FC = () => {
                 className="relative h-full overflow-hidden flex items-center gap-1.5 px-2.5 bg-transparent text-[11px] font-medium shrink-0 select-none"
                 title={t('trafficUsage')}
               >
-                {/* Transparent progress fill bar */}
+                {/* Transparent progress fill bar (always fills Left-to-Right) */}
                 {info.percentUsed !== undefined && (
                   <div
-                    className={`absolute inset-y-0 start-0 transition-all duration-300 pointer-events-none ${
+                    className={`absolute inset-y-0 left-0 transition-all duration-300 pointer-events-none ${
                       info.percentUsed > 90
                         ? 'bg-red-500/35 dark:bg-red-500/45'
                         : 'bg-emerald-500/25 dark:bg-emerald-500/30'
@@ -86,12 +86,13 @@ export const SubscriptionInfoBar: React.FC = () => {
                   <span className="text-muted-foreground dark:text-white/80 hidden sm:inline text-[10px]">
                     {t('trafficUsage')}:
                   </span>
-                  <span className="font-semibold text-foreground dark:text-white tabular-nums">
-                    {info.usedTraffic ? `${info.usedTraffic} / ` : ''}
-                    {info.totalTraffic}
-                  </span>
+                  <div className="inline-flex items-center gap-1 font-semibold text-foreground dark:text-white tabular-nums" dir="ltr">
+                    {info.usedTraffic && <span>{info.usedTraffic}</span>}
+                    {info.usedTraffic && info.totalTraffic && <span className="opacity-60">/</span>}
+                    <span>{info.totalTraffic}</span>
+                  </div>
                   {info.percentUsed !== undefined && (
-                    <span className="text-[10px] font-bold text-muted-foreground dark:text-white/90 tabular-nums">
+                    <span className="text-[10px] font-bold text-muted-foreground dark:text-white/90 tabular-nums" dir="ltr">
                       ({info.percentUsed}%)
                     </span>
                   )}
