@@ -100,6 +100,8 @@ interface ConfigState {
   // Settings & Navigation
   isSettingsOpen: boolean;
   setIsSettingsOpen: (open: boolean) => void;
+  isScanQrOpen: boolean;
+  setIsScanQrOpen: (open: boolean) => void;
   settings: AppSettings;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   toggleTheme: () => void;
@@ -598,6 +600,9 @@ export const useConfigStore = create<ConfigState>()(
 
   isSettingsOpen: false,
   setIsSettingsOpen: (open: boolean) => set({ isSettingsOpen: open }),
+
+  isScanQrOpen: false,
+  setIsScanQrOpen: (open: boolean) => set({ isScanQrOpen: open }),
 
   tunMode: false,
   setTunMode: (enabled: boolean) => set({ tunMode: enabled }),

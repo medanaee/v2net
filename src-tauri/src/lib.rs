@@ -68,6 +68,11 @@ fn close_window(window: WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|e| format!("Failed to read file: {e}"))
+}
+
+#[tauri::command]
 fn apply_window_vibrancy(window: WebviewWindow, enabled: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -203,6 +208,7 @@ pub fn run() {
             restart_as_admin,
             verify_sudo_password,
             lookup_country,
+            read_file_bytes,
             subscription::fetch_subscription
         ])
         .setup(|app| {

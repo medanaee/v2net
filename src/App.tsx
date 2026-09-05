@@ -9,6 +9,7 @@ import { ConfigTable } from './components/ConfigTable';
 import { TestingBar } from './components/TestingBar';
 import { ConnectionBar } from './components/ConnectionBar';
 import { SettingsModal } from './components/SettingsModal';
+import { ScanQrPage } from './components/ScanQrPage';
 import { SudoPasswordModal } from './components/SudoPasswordModal';
 import { useConfigStore } from './store/useConfigStore';
 import i18n from './lib/i18n';
@@ -16,7 +17,7 @@ import i18n from './lib/i18n';
 export const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sudoAction, setSudoAction] = useState<((pwd: string) => void) | null>(null);
-  const { settings, isSettingsOpen, updateConfigTraffic } = useConfigStore();
+  const { settings, isSettingsOpen, isScanQrOpen, updateConfigTraffic } = useConfigStore();
   const prevStats = useRef({ tx: 0, rx: 0 });
 
   useEffect(() => {
@@ -136,6 +137,8 @@ export const App: React.FC = () => {
       {/* Main Content Area beneath TitleBar */}
       {isSettingsOpen ? (
         <SettingsModal />
+      ) : isScanQrOpen ? (
+        <ScanQrPage />
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Subscription Days & Traffic Status Info Bar (under TitleBar, above GroupTabs) */}

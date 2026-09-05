@@ -12,6 +12,7 @@ import {
   Search,
   Globe2,
   ChevronDown,
+  QrCode,
 } from 'lucide-react';
 import { useConfigStore } from '../store/useConfigStore';
 import { Button } from './ui/button';
@@ -57,6 +58,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
     siteFilterIds,
     toggleSiteFilter,
     setSiteFilterIds,
+    setIsScanQrOpen,
   } = useConfigStore();
 
   const [notification, setNotification] = useState<string | null>(null);
@@ -103,20 +105,20 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
   };
 
   return (
-    <div className="h-11 border-b flex items-center justify-between px-2 sm:px-3 bg-transparent border-border/50 text-xs shrink-0 gap-1.5 sm:gap-2">
+    <div className="h-11 border-b flex items-center justify-between px-2 sm:px-3 bg-transparent border-border/50 text-xs shrink-0 gap-1.5 sm:gap-2 overflow-x-hidden min-w-0">
       {/* 3 Tabs */}
       <div className="flex items-center gap-1 shrink-0">
         <button
           onClick={() => setActiveTab('untested')}
           title={t('untested')}
-          className={`h-8 px-2 sm:px-3 flex items-center gap-1.5 font-medium rounded-md border-b-2 transition-colors cursor-pointer shrink-0 ${
+          className={`h-8 px-2 sm:px-2.5 flex items-center gap-1.5 font-medium rounded-md border-b-2 transition-colors cursor-pointer shrink-0 ${
             activeTab === 'untested'
               ? 'border-blue-500 text-blue-500 bg-muted'
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
         >
           <HelpCircle className="w-3.5 h-3.5 shrink-0" />
-          <span className="hidden sm:inline">{t('untested')}</span>
+          <span className="hidden lg:inline">{t('untested')}</span>
           <span className="px-1.5 py-0.2 text-[10px] rounded-full bg-slate-500/20 text-muted-foreground font-bold shrink-0">
             {untestedCount}
           </span>
@@ -125,14 +127,14 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
         <button
           onClick={() => setActiveTab('disconnected')}
           title={t('disconnected')}
-          className={`h-8 px-2 sm:px-3 flex items-center gap-1.5 font-medium rounded-md border-b-2 transition-colors cursor-pointer shrink-0 ${
+          className={`h-8 px-2 sm:px-2.5 flex items-center gap-1.5 font-medium rounded-md border-b-2 transition-colors cursor-pointer shrink-0 ${
             activeTab === 'disconnected'
               ? 'border-red-500 text-red-500 bg-muted'
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
         >
           <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
-          <span className="hidden sm:inline">{t('disconnected')}</span>
+          <span className="hidden lg:inline">{t('disconnected')}</span>
           <span className="px-1.5 py-0.2 text-[10px] rounded-full bg-red-500/20 text-red-500 font-bold shrink-0">
             {disconnectedCount}
           </span>
@@ -141,14 +143,14 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
         <button
           onClick={() => setActiveTab('working')}
           title={t('working')}
-          className={`h-8 px-2 sm:px-3 flex items-center gap-1.5 font-medium rounded-md border-b-2 transition-colors cursor-pointer shrink-0 ${
+          className={`h-8 px-2 sm:px-2.5 flex items-center gap-1.5 font-medium rounded-md border-b-2 transition-colors cursor-pointer shrink-0 ${
             activeTab === 'working'
               ? 'border-emerald-500 text-emerald-500 bg-muted'
               : 'border-transparent text-muted-foreground hover:text-foreground'
           }`}
         >
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-          <span className="hidden sm:inline">{t('working')}</span>
+          <span className="hidden lg:inline">{t('working')}</span>
           <span className="px-1.5 py-0.2 text-[10px] rounded-full bg-emerald-500/20 text-emerald-500 font-bold shrink-0">
             {workingCount}
           </span>
@@ -156,7 +158,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
       </div>
 
       {/* Controls & Search */}
-      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+      <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 min-w-0">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -170,7 +172,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
               }`}
             >
               <Globe2 className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden xl:inline">{t('filterBySites')}</span>
+              <span className="hidden lg:inline">{t('filterBySites')}</span>
               {siteFilterIds.length > 0 && (
                 <span className="rounded-full bg-sky-500/15 px-1.5 text-[10px] font-bold shrink-0">
                   {siteFilterIds.length}
@@ -214,7 +216,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <div className="relative w-24 sm:w-32 md:w-36 lg:w-44 min-w-[70px] shrink transition-all">
+        <div className="relative w-20 sm:w-28 md:w-32 lg:w-40 min-w-[55px] shrink transition-all">
           <input
             type="text"
             placeholder={t('searchPlaceholder')}
@@ -228,16 +230,29 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
         <div className="h-4 w-[1px] bg-border shrink-0" />
 
         {!isSubscription && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handlePaste}
-            title={t('paste')}
-            className="h-7 gap-1 px-2 shrink-0"
-          >
-            <ClipboardPaste className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-            <span className="hidden md:inline">{t('paste')}</span>
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsScanQrOpen(true)}
+              title={t('scanQr')}
+              className="h-7 gap-1 px-2 shrink-0"
+            >
+              <QrCode className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="hidden md:inline">{t('scanQr')}</span>
+            </Button>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handlePaste}
+              title={t('paste')}
+              className="h-7 gap-1 px-2 shrink-0"
+            >
+              <ClipboardPaste className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              <span className="hidden md:inline">{t('paste')}</span>
+            </Button>
+          </>
         )}
 
         <Button
@@ -265,7 +280,7 @@ export const GroupTabs: React.FC<GroupTabsProps> = ({ searchQuery, setSearchQuer
           className="h-7 gap-1 px-2 shrink-0"
         >
           <RotateCcw className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-          <span className="hidden lg:inline">{t('resetResults')}</span>
+          <span className="hidden xl:inline">{t('resetResults')}</span>
         </Button>
 
         {!isSubscription && (
