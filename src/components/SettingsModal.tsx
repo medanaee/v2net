@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { ArrowRight, ArrowLeft, Sliders, Activity, Sun, Moon, Sparkles, Plus, Trash2, Globe, FolderPlus, Edit2, Link2, RefreshCw } from 'lucide-react';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { ArrowRight, ArrowLeft, Sliders, Activity, Sun, Moon, Sparkles, Plus, Trash2, Globe, FolderPlus, Edit2, Link2, RefreshCw, Network, Route, Copy, Check } from 'lucide-react';
 import { useConfigStore } from '../store/useConfigStore';
-import { isSubscriptionGroup, type Group } from '../types/config';
+import { isSubscriptionGroup, type Group, type RoutingAction, type CustomRoutingRule } from '../types/config';
+import { startProxyWithConfig } from '../lib/proxy';
 import { Button } from './ui/button';
 import { Switch } from './ui/switch';
 import {
@@ -60,6 +62,36 @@ export const SettingsModal: React.FC = () => {
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [refreshingGroupId, setRefreshingGroupId] = useState<string | null>(null);
   const [groupToast, setGroupToast] = useState<string | null>(null);
+  const [newRulePattern, setNewRulePattern] = useState('');
+  const [newRuleAction, setNewRuleAction] = useState<RoutingAction>('direct');
+  const [lanIps, setLanIps] = useState<string[]>([]);
+  const [copiedLanIp, setCopiedLanIp] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isSettingsOpen || activeTab !== 'connection' || !settings.allowLan) return;
+    invoke<string[]>('get_lan_ips')
+      .then((ips) => setLanIps(ips))
+      .catch(() => setLanIps([]));
+  }, [isSettingsOpen, activeTab, settings.allowLan]);
+
+  const reconnectIfActive = (
+    nextAllowLan: boolean,
+    nextRouting: { enabled: boolean; rules: CustomRoutingRule[] }
+  ) => {
+    const activeId = settings.activeConfigId;
+    if (!activeId) return;
+    const activeConfig = configs.find((c) => c.id === activeId);
+    if (!activeConfig) return;
+    startProxyWithConfig(
+      activeConfig,
+      settings.localPort || 10900,
+      settings.systemProxyMode || 'dont_change',
+      useConfigStore.getState().tunMode,
+      undefined,
+      nextAllowLan,
+      nextRouting.enabled ? nextRouting.rules : []
+    ).catch(console.error);
+  };
 
   const showGroupToast = (msg: string) => {
     setGroupToast(msg);
@@ -711,6 +743,210 @@ export const SettingsModal: React.FC = () => {
                     className="w-28"
                   />
                 </div>
+              </SettingCard>
+
+              <SettingCard className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="space-y-0.5 flex-1 text-start">
+                    <div className="flex items-center gap-1.5 font-semibold text-xs">
+                      <Network className="w-4 h-4 text-sky-500" />
+                      <span>{t('allowLan')}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground/70">{t('allowLanDesc')}</p>
+                  </div>
+                  <Switch
+                    checked={settings.allowLan}
+                    onCheckedChange={(val) => {
+                      updateSettings({ allowLan: val });
+                      reconnectIfActive(val, settings.customRouting);
+                    }}
+                  />
+                </div>
+
+                {settings.allowLan && (
+                  <div className="pt-2 border-t border-border/50 space-y-1.5 text-start">
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      {t('lanAddresses')}:
+                    </span>
+                    {lanIps.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground/70">{t('noLanIpFound')}</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5" dir="ltr">
+                        {lanIps.map((ip) => {
+                          const endpoint = `${ip}:${settings.localPort || 10900}`;
+                          const isCopied = copiedLanIp === endpoint;
+                          return (
+                            <button
+                              key={ip}
+                              type="button"
+                              onClick={() => {
+                                writeText(endpoint).catch(console.error);
+                                setCopiedLanIp(endpoint);
+                                setTimeout(() => setCopiedLanIp((prev) => (prev === endpoint ? null : prev)), 1500);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-border/60 bg-background/60 hover:bg-muted transition-colors font-mono text-[11px] cursor-pointer"
+                            >
+                              <span>{endpoint}</span>
+                              {isCopied ? (
+                                <Check className="w-3 h-3 text-emerald-500" />
+                              ) : (
+                                <Copy className="w-3 h-3 text-muted-foreground" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </SettingCard>
+
+              <SettingCard className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="space-y-0.5 flex-1 text-start">
+                    <div className="flex items-center gap-1.5 font-semibold text-xs">
+                      <Route className="w-4 h-4 text-emerald-500" />
+                      <span>{t('customRouting')}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground/70">{t('customRoutingDesc')}</p>
+                  </div>
+                  <Switch
+                    checked={settings.customRouting?.enabled ?? false}
+                    onCheckedChange={(val) => {
+                      const nextRouting = {
+                        enabled: val,
+                        rules: settings.customRouting?.rules ?? [],
+                      };
+                      updateSettings({ customRouting: nextRouting });
+                      reconnectIfActive(settings.allowLan, nextRouting);
+                    }}
+                  />
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const pattern = newRulePattern.trim();
+                    if (!pattern) return;
+                    const newRule: CustomRoutingRule = {
+                      id: crypto.randomUUID(),
+                      pattern,
+                      action: newRuleAction,
+                      enabled: true,
+                    };
+                    const nextRouting = {
+                      enabled: settings.customRouting?.enabled ?? true,
+                      rules: [...(settings.customRouting?.rules ?? []), newRule],
+                    };
+                    updateSettings({ customRouting: nextRouting });
+                    setNewRulePattern('');
+                    if (nextRouting.enabled) {
+                      reconnectIfActive(settings.allowLan, nextRouting);
+                    }
+                  }}
+                  className="flex items-center gap-2 pt-1"
+                >
+                  <input
+                    type="text"
+                    value={newRulePattern}
+                    onChange={(e) => setNewRulePattern(e.target.value)}
+                    placeholder={t('customRoutingPlaceholder')}
+                    dir="ltr"
+                    className="flex-1 bg-card border border-border text-foreground rounded px-2.5 py-1.5 outline-none focus:border-primary transition-colors text-xs font-mono"
+                  />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="outline" size="sm" className="h-8 text-xs min-w-[96px] justify-between shrink-0">
+                        {newRuleAction === 'proxy' && t('routingActionProxy')}
+                        {newRuleAction === 'direct' && t('routingActionDirect')}
+                        {newRuleAction === 'block' && t('routingActionBlock')}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="text-xs">
+                      <DropdownMenuItem onClick={() => setNewRuleAction('direct')}>
+                        {t('routingActionDirect')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setNewRuleAction('proxy')}>
+                        {t('routingActionProxy')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setNewRuleAction('block')}>
+                        {t('routingActionBlock')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button type="submit" size="sm" className="h-8 gap-1 shrink-0">
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{t('addRule')}</span>
+                  </Button>
+                </form>
+
+                {(settings.customRouting?.rules?.length ?? 0) === 0 ? (
+                  <p className="text-[11px] text-muted-foreground/60 text-center py-2">
+                    {t('noRoutingRules')}
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-52 overflow-y-auto pt-1">
+                    {settings.customRouting.rules.map((rule) => (
+                      <div
+                        key={rule.id}
+                        className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border border-border/50 bg-background/40 text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <Checkbox
+                            checked={rule.enabled}
+                            onCheckedChange={(checked) => {
+                              const nextRules = settings.customRouting.rules.map((r) =>
+                                r.id === rule.id ? { ...r, enabled: !!checked } : r
+                              );
+                              const nextRouting = { ...settings.customRouting, rules: nextRules };
+                              updateSettings({ customRouting: nextRouting });
+                              if (nextRouting.enabled) {
+                                reconnectIfActive(settings.allowLan, nextRouting);
+                              }
+                            }}
+                          />
+                          <span
+                            dir="ltr"
+                            className={`font-mono truncate ${rule.enabled ? 'text-foreground' : 'text-muted-foreground line-through'}`}
+                          >
+                            {rule.pattern}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              rule.action === 'proxy'
+                                ? 'bg-blue-500/15 text-blue-500'
+                                : rule.action === 'direct'
+                                ? 'bg-emerald-500/15 text-emerald-500'
+                                : 'bg-red-500/15 text-red-500'
+                            }`}
+                          >
+                            {rule.action === 'proxy' && t('routingActionProxy')}
+                            {rule.action === 'direct' && t('routingActionDirect')}
+                            {rule.action === 'block' && t('routingActionBlock')}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-muted-foreground hover:text-red-500"
+                            onClick={() => {
+                              const nextRules = settings.customRouting.rules.filter((r) => r.id !== rule.id);
+                              const nextRouting = { ...settings.customRouting, rules: nextRules };
+                              updateSettings({ customRouting: nextRouting });
+                              if (nextRouting.enabled) {
+                                reconnectIfActive(settings.allowLan, nextRouting);
+                              }
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </SettingCard>
 
               <SettingCard className="space-y-3">

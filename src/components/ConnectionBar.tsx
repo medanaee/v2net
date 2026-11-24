@@ -1,8 +1,9 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../store/useConfigStore';
-import { Globe, Plug, Power, ShieldCheck } from 'lucide-react';
+import { Globe, Plug, Power, ShieldCheck, Network, Copy, Check } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { type as getOsType } from '@tauri-apps/plugin-os';
 import { startProxyWithConfig } from '../lib/proxy';
 import { Switch } from './ui/switch';
@@ -21,6 +22,47 @@ let autoConnectDone = false;
 export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) => void) => void }> = ({ onRequireSudo }) => {
   const { t } = useTranslation();
   const { settings, updateSettings, configs, tunMode, setTunMode } = useConfigStore();
+  const [lanPopoverPos, setLanPopoverPos] = React.useState<{ left: number; bottom: number } | null>(null);
+  const [lanIps, setLanIps] = React.useState<string[]>([]);
+  const [copiedIp, setCopiedIp] = React.useState<string | null>(null);
+  const lanBadgeRef = React.useRef<HTMLSpanElement | null>(null);
+  const closeTimerRef = React.useRef<number | undefined>(undefined);
+
+  const openLanPopover = () => {
+    if (closeTimerRef.current !== undefined) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = undefined;
+    }
+    if (lanBadgeRef.current) {
+      const rect = lanBadgeRef.current.getBoundingClientRect();
+      setLanPopoverPos({
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - 260)),
+        bottom: window.innerHeight - rect.top + 8,
+      });
+    }
+    invoke<string[]>('get_lan_ips')
+      .then((ips) => setLanIps(ips))
+      .catch(() => setLanIps([]));
+  };
+
+  const scheduleCloseLanPopover = () => {
+    if (closeTimerRef.current !== undefined) {
+      window.clearTimeout(closeTimerRef.current);
+    }
+    closeTimerRef.current = window.setTimeout(() => {
+      setLanPopoverPos(null);
+    }, 150);
+  };
+
+  const handleCopyLanEndpoint = async (endpoint: string) => {
+    try {
+      await writeText(endpoint);
+      setCopiedIp(endpoint);
+      setTimeout(() => setCopiedIp((prev) => (prev === endpoint ? null : prev)), 1500);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   React.useEffect(() => {
     if (autoConnectDone) return;
@@ -49,7 +91,10 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
           activeConfig,
           state.settings.localPort || 10900,
           state.settings.systemProxyMode || 'dont_change',
-          useConfigStore.getState().tunMode
+          useConfigStore.getState().tunMode,
+          undefined,
+          state.settings.allowLan ?? false,
+          state.settings.customRouting?.enabled ? state.settings.customRouting.rules : []
         ).catch(console.error);
       }, 300);
     };
@@ -77,7 +122,9 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
       settings.localPort || 10900,
       settings.systemProxyMode || 'dont_change',
       nextTun,
-      sudoPassword
+      sudoPassword,
+      settings.allowLan ?? false,
+      settings.customRouting?.enabled ? settings.customRouting.rules : []
     );
   };
 
@@ -169,6 +216,67 @@ export const ConnectionBar: React.FC<{ onRequireSudo: (onSubmit: (pwd: string) =
           <span className={`font-semibold ${settings.activeConfigId ? 'text-foreground' : 'text-muted-foreground'}`}>
             {settings.localPort}
           </span>
+          <span
+            ref={lanBadgeRef}
+            onMouseEnter={openLanPopover}
+            onMouseLeave={scheduleCloseLanPopover}
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-sans font-semibold shrink-0 cursor-default ${
+              settings.allowLan
+                ? 'bg-sky-500/15 text-sky-500'
+                : 'bg-muted/40 text-muted-foreground/70'
+            }`}
+          >
+            <Network className="w-3 h-3 shrink-0" />
+            <span>{settings.allowLan ? 'LAN' : t('lanDisabled')}</span>
+          </span>
+          {lanPopoverPos && (
+            <div
+              onMouseEnter={() => {
+                if (closeTimerRef.current !== undefined) {
+                  window.clearTimeout(closeTimerRef.current);
+                  closeTimerRef.current = undefined;
+                }
+              }}
+              onMouseLeave={scheduleCloseLanPopover}
+              style={{ left: lanPopoverPos.left, bottom: lanPopoverPos.bottom }}
+              className="fixed z-50 min-w-[220px] max-w-[300px] rounded-lg border border-border bg-popover/95 backdrop-blur-md p-2.5 shadow-lg text-xs font-sans text-popover-foreground"
+            >
+              <div className="flex items-center justify-between gap-2 pb-1.5 mb-1.5 border-b border-border/50">
+                <span className="font-semibold text-[11px] flex items-center gap-1.5">
+                  <Network className="w-3.5 h-3.5 text-sky-500" />
+                  {t('lanAddresses')}
+                </span>
+              </div>
+              {!settings.allowLan ? (
+                <p className="text-[11px] text-muted-foreground">{t('lanDisabled')}</p>
+              ) : lanIps.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">{t('noLanIpFound')}</p>
+              ) : (
+                <div className="space-y-1">
+                  {lanIps.map((ip) => {
+                    const endpoint = `${ip}:${settings.localPort || 10900}`;
+                    const isCopied = copiedIp === endpoint;
+                    return (
+                      <button
+                        key={ip}
+                        type="button"
+                        onClick={() => handleCopyLanEndpoint(endpoint)}
+                        className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded bg-muted/40 hover:bg-muted transition-colors font-mono text-[11px] cursor-pointer"
+                        dir="ltr"
+                      >
+                        <span className="truncate">{endpoint}</span>
+                        {isCopied ? (
+                          <Check className="w-3 h-3 text-emerald-500 shrink-0" />
+                        ) : (
+                          <Copy className="w-3 h-3 text-muted-foreground shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {settings.activeConfigId && <div className="h-4 w-[1px] bg-border shrink-0" />}

@@ -89,8 +89,8 @@ fn apply_window_vibrancy(window: WebviewWindow, enabled: bool) -> Result<(), Str
 }
 
 use connection::{
-    check_elevation, get_proxy_stats, restart_as_admin, set_system_proxy_mode, start_proxy,
-    stop_proxy, verify_sudo_password,
+    check_elevation, get_lan_ips, get_proxy_stats, restart_as_admin, set_system_proxy_mode,
+    start_proxy, stop_proxy, verify_sudo_password,
 };
 use geoip::lookup_country;
 use std::sync::Mutex;
@@ -203,6 +203,7 @@ pub fn run() {
             start_proxy,
             stop_proxy,
             set_system_proxy_mode,
+            get_lan_ips,
             get_proxy_stats,
             check_elevation,
             restart_as_admin,

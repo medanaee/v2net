@@ -35,6 +35,8 @@ interface ConfigState {
   deleteGroup: (id: string) => void;
   setActiveGroupId: (id: string) => void;
   refreshSubscription: (groupId: string) => Promise<number>;
+  refreshSubscriptionInfoOnly: (groupId: string) => Promise<void>;
+  refreshAllSubscriptionsInfo: () => Promise<void>;
   isGroupSubscription: (groupId?: string) => boolean;
 
   // Configs
@@ -270,6 +272,54 @@ export const useConfigStore = create<ConfigState>()(
       lastSelectedId: null,
     }));
     return realConfigs.length;
+  },
+
+  refreshSubscriptionInfoOnly: async (groupId: string) => {
+    const group = get().groups.find((g) => g.id === groupId);
+    const url = group?.subscriptionUrl?.trim();
+    if (!url) {
+      throw new Error('Group has no subscription URL');
+    }
+
+    const res = await invoke<{ body: string; userinfo?: string } | string>(
+      'fetch_subscription',
+      { url }
+    );
+    const rawBody = typeof res === 'string' ? res : res.body;
+    const httpUserInfo = typeof res === 'object' ? res.userinfo : undefined;
+
+    const text = decodeSubscriptionBody(rawBody);
+    const parsed = parseBatchConfigs(text, groupId);
+    const { subscriptionInfo } = extractSubscriptionInfoFromConfigs(
+      parsed,
+      httpUserInfo
+    );
+
+    if (!subscriptionInfo) return;
+
+    set((state) => ({
+      groups: state.groups.map((g) =>
+        g.id === groupId
+          ? {
+              ...g,
+              lastUpdated: Date.now(),
+              subscriptionInfo: {
+                ...(g.subscriptionInfo || {}),
+                ...subscriptionInfo,
+              },
+            }
+          : g
+      ),
+    }));
+  },
+
+  refreshAllSubscriptionsInfo: async () => {
+    const subGroups = get().groups.filter(isSubscriptionGroup);
+    if (subGroups.length === 0) return;
+
+    await Promise.allSettled(
+      subGroups.map((g) => get().refreshSubscriptionInfoOnly(g.id))
+    );
   },
 
   configs: [],
@@ -621,6 +671,11 @@ export const useConfigStore = create<ConfigState>()(
       uploadUrl: 'https://speed.cloudflare.com/__up',
     },
     localPort: 10900,
+    allowLan: false,
+    customRouting: {
+      enabled: false,
+      rules: [],
+    },
     systemProxyMode: 'dont_change',
     activeConfigId: null,
     showTrafficStats: true,
@@ -704,6 +759,11 @@ export const useConfigStore = create<ConfigState>()(
             ...currentState.settings,
             ...(persistedState.settings || {}),
             localPort: persistedState.settings?.localPort || 10900,
+            allowLan: persistedState.settings?.allowLan ?? false,
+            customRouting: persistedState.settings?.customRouting ?? {
+              enabled: false,
+              rules: [],
+            },
             systemProxyMode: persistedState.settings?.systemProxyMode || 'dont_change',
             showTrafficStats: persistedState.settings?.showTrafficStats ?? true,
             hasSeenSecondarySortTip:

@@ -79,6 +79,20 @@ export function isSubscriptionGroup(group: Group | undefined | null): boolean {
   return !!group?.subscriptionUrl?.trim();
 }
 
+export type RoutingAction = 'proxy' | 'direct' | 'block';
+
+export interface CustomRoutingRule {
+  id: string;
+  pattern: string;
+  action: RoutingAction;
+  enabled: boolean;
+}
+
+export interface CustomRoutingSettings {
+  enabled: boolean;
+  rules: CustomRoutingRule[];
+}
+
 export interface AppSettings {
   theme: 'dark' | 'light';
   language: 'fa' | 'en';
@@ -93,6 +107,8 @@ export interface AppSettings {
     uploadUrl: string;
   };
   localPort: number;
+  allowLan: boolean;
+  customRouting: CustomRoutingSettings;
   systemProxyMode: 'set' | 'clear' | 'dont_change';
   activeConfigId: string | null;
   showTrafficStats: boolean;

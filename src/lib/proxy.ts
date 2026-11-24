@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { ConfigItem } from '../types/config';
+import { ConfigItem, CustomRoutingRule } from '../types/config';
 
 /** Serialize proxy start calls so rapid right-clicks cannot overlap. */
 let startChain: Promise<unknown> = Promise.resolve();
@@ -9,7 +9,9 @@ export const startProxyWithConfig = async (
   localPort: number,
   systemProxyMode: string,
   tunMode: boolean,
-  sudoPassword?: string
+  sudoPassword?: string,
+  allowLan = false,
+  customRules: CustomRoutingRule[] = []
 ) => {
   const run = () =>
     invoke('start_proxy', {
@@ -51,6 +53,8 @@ export const startProxyWithConfig = async (
       localPort,
       systemProxyMode,
       tunMode,
+      allowLan,
+      customRules,
       sudoPassword,
     });
 

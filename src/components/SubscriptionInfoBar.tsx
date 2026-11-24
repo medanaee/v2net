@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Calendar,
@@ -6,21 +6,35 @@ import {
   Link2,
   Clock,
   Info,
+  RefreshCw,
 } from 'lucide-react';
 import { useConfigStore } from '../store/useConfigStore';
 import { isSubscriptionGroup } from '../types/config';
 
 export const SubscriptionInfoBar: React.FC = () => {
   const { t } = useTranslation();
-  const { groups, activeGroupId } = useConfigStore();
+  const { groups, activeGroupId, refreshSubscriptionInfoOnly } = useConfigStore();
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const activeGroup = groups.find((g) => g.id === activeGroupId);
   const isSub = isSubscriptionGroup(activeGroup);
   const info = activeGroup?.subscriptionInfo;
 
-  if (!isSub || !info) {
+  if (!isSub || !info || !activeGroup) {
     return null;
   }
+
+  const handleRefreshInfo = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await refreshSubscriptionInfoOnly(activeGroup.id);
+    } catch (e) {
+      console.error('Failed to refresh subscription info:', e);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const hasStructuredData =
     !!info.remainingDays ||
@@ -109,6 +123,17 @@ export const SubscriptionInfoBar: React.FC = () => {
             <span>{info.raw}</span>
           </div>
         )}
+
+        {/* Refresh only subscription info (traffic & remaining days) */}
+        <button
+          type="button"
+          onClick={handleRefreshInfo}
+          disabled={isRefreshing}
+          title={t('refreshSubInfoOnly')}
+          className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-sky-500 hover:bg-sky-500/10 transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-sky-500' : ''}`} />
+        </button>
       </div>
 
       {/* Right side: Last updated time */}

@@ -1,5 +1,52 @@
 use crate::tester::TestTarget;
+use serde::Deserialize;
 use serde_json::{json, Value};
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CustomRoutingRule {
+    pub pattern: String,
+    pub action: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn is_ip_or_cidr(s: &str) -> bool {
+    if s.starts_with("geoip:") {
+        return true;
+    }
+    if s.parse::<std::net::IpAddr>().is_ok() {
+        return true;
+    }
+    if let Some((ip_part, prefix_part)) = s.split_once('/') {
+        if let (Ok(ip), Ok(prefix)) = (ip_part.parse::<std::net::IpAddr>(), prefix_part.parse::<u8>()) {
+            return match ip {
+                std::net::IpAddr::V4(_) => prefix <= 32,
+                std::net::IpAddr::V6(_) => prefix <= 128,
+            };
+        }
+    }
+    false
+}
+
+fn normalize_domain_pattern(s: &str) -> String {
+    if s.starts_with("domain:")
+        || s.starts_with("full:")
+        || s.starts_with("regexp:")
+        || s.starts_with("keyword:")
+        || s.starts_with("geosite:")
+        || s.starts_with("ext:")
+    {
+        s.to_string()
+    } else if let Some(stripped) = s.strip_prefix("*.") {
+        format!("domain:{stripped}")
+    } else {
+        format!("domain:{s}")
+    }
+}
 
 /// Build outbound streamSettings (shared by ping / connect / mixed).
 /// Matches v2rayN: `tcp` → `raw`, HTTP camouflage → `rawSettings` (not `tcpSettings`).
@@ -380,6 +427,8 @@ pub fn generate_xray_config_mixed(
     target: &crate::tester::TestTarget,
     local_port: u16,
     tun_mode: bool,
+    allow_lan: bool,
+    custom_rules: &[CustomRoutingRule],
 ) -> Value {
     let mut outbound = json!({
         "protocol": target.protocol,
@@ -442,9 +491,10 @@ pub fn generate_xray_config_mixed(
     outbound["streamSettings"] = build_stream_settings(target);
     outbound["tag"] = json!("proxy");
 
+    let listen_addr = if allow_lan { "0.0.0.0" } else { "127.0.0.1" };
     let inbound = json!({
         "port": local_port,
-        "listen": "127.0.0.1",
+        "listen": listen_addr,
         "protocol": "mixed",
         "tag": "inbound",
         "settings": {
@@ -542,13 +592,44 @@ pub fn generate_xray_config_mixed(
         // No geoip/geosite rules — avoids requiring geoip.dat / geosite.dat next to the core.
     }
 
+    let user_inbounds = if tun_mode {
+        json!(["inbound", "tun"])
+    } else {
+        json!(["inbound"])
+    };
+
+    for rule in custom_rules {
+        if !rule.enabled {
+            continue;
+        }
+        let pattern = rule.pattern.trim();
+        if pattern.is_empty() {
+            continue;
+        }
+        let outbound_tag = match rule.action.as_str() {
+            "proxy" | "direct" | "block" => rule.action.as_str(),
+            _ => continue,
+        };
+        if is_ip_or_cidr(pattern) {
+            rules.push(json!({
+                "type": "field",
+                "inboundTag": user_inbounds,
+                "ip": [pattern],
+                "outboundTag": outbound_tag
+            }));
+        } else {
+            rules.push(json!({
+                "type": "field",
+                "inboundTag": user_inbounds,
+                "domain": [normalize_domain_pattern(pattern)],
+                "outboundTag": outbound_tag
+            }));
+        }
+    }
+
     rules.push(json!({
         "type": "field",
-        "inboundTag": if tun_mode {
-            json!(["inbound", "tun"])
-        } else {
-            json!(["inbound"])
-        },
+        "inboundTag": user_inbounds,
         "outboundTag": "proxy"
     }));
     rules.push(json!({
@@ -665,7 +746,7 @@ mod tests {
 
     #[test]
     fn tun_inbound_matches_v2rayn_sample() {
-        let cfg = generate_xray_config_mixed(&sample_target(), 10900, true);
+        let cfg = generate_xray_config_mixed(&sample_target(), 10900, true, false, &[]);
         let tun = cfg["inbounds"]
             .as_array()
             .unwrap()
@@ -716,7 +797,7 @@ mod tests {
         t.sid = Some("510ab49b8c0745a9".into());
         t.fp = Some("chrome".into());
 
-        let cfg = generate_xray_config_mixed(&t, 10900, false);
+        let cfg = generate_xray_config_mixed(&t, 10900, false, false, &[]);
         let proxy = &cfg["outbounds"][0];
         let stream = &proxy["streamSettings"];
 
@@ -742,5 +823,39 @@ mod tests {
         assert_eq!(batch_stream["network"], "raw");
         assert_eq!(batch_stream["rawSettings"]["header"]["type"], "http");
         assert!(batch_stream.get("tcpSettings").is_none());
+    }
+
+    #[test]
+    fn allow_lan_and_custom_routing_rules_apply() {
+        let rules = vec![
+            CustomRoutingRule {
+                pattern: "google.com".into(),
+                action: "direct".into(),
+                enabled: true,
+            },
+            CustomRoutingRule {
+                pattern: "192.168.1.0/24".into(),
+                action: "direct".into(),
+                enabled: true,
+            },
+            CustomRoutingRule {
+                pattern: "ads.example.com".into(),
+                action: "block".into(),
+                enabled: true,
+            },
+            CustomRoutingRule {
+                pattern: "disabled.com".into(),
+                action: "block".into(),
+                enabled: false,
+            },
+        ];
+        let cfg = generate_xray_config_mixed(&sample_target(), 10900, false, true, &rules);
+        assert_eq!(cfg["inbounds"][0]["listen"], "0.0.0.0");
+
+        let routing_rules = cfg["routing"]["rules"].as_array().unwrap();
+        assert!(routing_rules.iter().any(|r| r["domain"] == json!(["domain:google.com"]) && r["outboundTag"] == "direct"));
+        assert!(routing_rules.iter().any(|r| r["ip"] == json!(["192.168.1.0/24"]) && r["outboundTag"] == "direct"));
+        assert!(routing_rules.iter().any(|r| r["domain"] == json!(["domain:ads.example.com"]) && r["outboundTag"] == "block"));
+        assert!(!routing_rules.iter().any(|r| r["domain"] == json!(["domain:disabled.com"])));
     }
 }

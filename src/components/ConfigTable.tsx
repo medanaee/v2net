@@ -279,7 +279,10 @@ export const ConfigTable: React.FC<ConfigTableProps> = ({ searchQuery }) => {
         item,
         settings.localPort || 10900,
         settings.systemProxyMode || 'dont_change',
-        useConfigStore.getState().tunMode
+        useConfigStore.getState().tunMode,
+        undefined,
+        settings.allowLan ?? false,
+        settings.customRouting?.enabled ? settings.customRouting.rules : []
       );
     } catch (e) {
       console.error('Failed to connect:', e);

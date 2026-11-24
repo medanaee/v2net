@@ -506,13 +506,21 @@ async fn write_and_start_xray(
     target: &TestTarget,
     local_port: u16,
     tun_mode: bool,
+    allow_lan: bool,
+    custom_rules: &[crate::xray_config::CustomRoutingRule],
     sudo_password: Option<String>,
 ) -> Result<(), String> {
     let temp_dir = std::env::temp_dir().join("v2ray_test_configs");
     let _ = fs::create_dir_all(&temp_dir);
 
     // Official Xray TUN (v2rayN SampleTun shape); core owns routes via autoSystemRoutingTable.
-    let xray_config = crate::xray_config::generate_xray_config_mixed(target, local_port, tun_mode);
+    let xray_config = crate::xray_config::generate_xray_config_mixed(
+        target,
+        local_port,
+        tun_mode,
+        allow_lan,
+        custom_rules,
+    );
     let xray_config_path = temp_dir.join("active_proxy.json");
     fs::write(
         &xray_config_path,
@@ -617,9 +625,13 @@ pub async fn start_proxy(
     local_port: u16,
     system_proxy_mode: String,
     tun_mode: bool,
+    allow_lan: Option<bool>,
+    custom_rules: Option<Vec<crate::xray_config::CustomRoutingRule>>,
     sudo_password: Option<String>,
 ) -> Result<(), String> {
     let _op = PROXY_OP.lock().await;
+    let allow_lan = allow_lan.unwrap_or(false);
+    let custom_rules = custom_rules.unwrap_or_default();
 
     println!(
         "[start_proxy] target: {}, tun_mode: {}, linux_sudo: {}, tun_front_alive: {}",
@@ -648,7 +660,16 @@ pub async fn start_proxy(
         }
         stop_xray_only().await;
         if wait_port_free(local_port, 4000).await.is_ok() {
-            write_and_start_xray(&app, &target, local_port, true, sudo_password.clone()).await?;
+            write_and_start_xray(
+                &app,
+                &target,
+                local_port,
+                true,
+                allow_lan,
+                &custom_rules,
+                sudo_password.clone(),
+            )
+            .await?;
             wait_for_socks_port(local_port, 8000).await?;
             update_system_proxy("clear".into(), local_port)?;
             return Ok(());
@@ -664,7 +685,16 @@ pub async fn start_proxy(
     }
     wait_port_free(local_port, 5000).await?;
 
-    write_and_start_xray(&app, &target, local_port, tun_mode, sudo_password).await?;
+    write_and_start_xray(
+        &app,
+        &target,
+        local_port,
+        tun_mode,
+        allow_lan,
+        &custom_rules,
+        sudo_password,
+    )
+    .await?;
     wait_for_socks_port(local_port, if tun_mode { 8000 } else { 5000 }).await?;
 
     if tun_mode {
@@ -683,6 +713,72 @@ pub async fn start_proxy(
 pub async fn stop_proxy() -> Result<(), String> {
     let _op = PROXY_OP.lock().await;
     stop_proxy_inner(true, false).await
+}
+
+#[tauri::command]
+pub fn get_lan_ips() -> Vec<String> {
+    let mut ips: Vec<String> = Vec::new();
+    let mut push_ip = |ip: std::net::Ipv4Addr| {
+        if ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() || ip.is_broadcast() {
+            return;
+        }
+        let octets = ip.octets();
+        // Exclude subnet masks (255.x.x.x) and xray_tun virtual subnet (172.18.0.x)
+        if octets[0] == 255 || (octets[0] == 172 && octets[1] == 18 && octets[2] == 0) {
+            return;
+        }
+        let s = ip.to_string();
+        if !ips.contains(&s) {
+            ips.push(s);
+        }
+    };
+
+    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if sock.connect("8.8.8.8:80").is_ok() {
+            if let Ok(std::net::SocketAddr::V4(addr)) = sock.local_addr() {
+                push_ip(*addr.ip());
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        if let Ok(out) = std::process::Command::new("ipconfig")
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+        {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines() {
+                // Skip subnet mask / gateway lines if possible; also check colon-separated value
+                let lower = line.to_ascii_lowercase();
+                if lower.contains("mask") || lower.contains("gateway") {
+                    continue;
+                }
+                if let Some((_, rhs)) = line.split_once(':') {
+                    let candidate = rhs.trim().trim_end_matches("(Preferred)").trim();
+                    if let Ok(ip) = candidate.parse::<std::net::Ipv4Addr>() {
+                        push_ip(ip);
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        if let Ok(out) = std::process::Command::new("hostname").arg("-I").output() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            for token in text.split_whitespace() {
+                if let Ok(ip) = token.parse::<std::net::Ipv4Addr>() {
+                    push_ip(ip);
+                }
+            }
+        }
+    }
+
+    ips
 }
 
 #[tauri::command]

@@ -14,11 +14,31 @@ import { SudoPasswordModal } from './components/SudoPasswordModal';
 import { useConfigStore } from './store/useConfigStore';
 import i18n from './lib/i18n';
 
+let autoSubInfoDone = false;
+
 export const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sudoAction, setSudoAction] = useState<((pwd: string) => void) | null>(null);
   const { settings, isSettingsOpen, isScanQrOpen, updateConfigTraffic } = useConfigStore();
   const prevStats = useRef({ tx: 0, rx: 0 });
+
+  useEffect(() => {
+    if (getCurrentWindow().label !== 'main' || autoSubInfoDone) return;
+
+    const runAutoSubInfo = () => {
+      if (autoSubInfoDone) return;
+      if (!useConfigStore.persist.hasHydrated()) return;
+      autoSubInfoDone = true;
+      useConfigStore.getState().refreshAllSubscriptionsInfo().catch(console.error);
+    };
+
+    const unsub = useConfigStore.persist.onFinishHydration(() => {
+      runAutoSubInfo();
+    });
+    runAutoSubInfo();
+
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     // Only poll for traffic stats in the 'main' window to prevent duplicate counting in multi-window scenarios
